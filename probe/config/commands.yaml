@@ -1,0 +1,45 @@
+# 巡检命令模板，按设备类型分组。
+#
+# 硬约束：这里只能写只读命令，也就是 show 或 display 开头的。
+# 写操作会被 ro_guard 拦下，不会下发。
+# 加命令不用改代码，改这张表就行，运维自己也能维护。
+
+huawei:
+  label: 华为 VRP
+  netmiko_os: huawei
+  version: display version
+  config: display current-configuration
+  interfaces: display interface brief
+  cpu: display cpu-usage
+  memory: display memory-usage
+  arp: display arp
+
+h3c:
+  label: 华三 Comware
+  netmiko_os: hp_comware
+  version: display version
+  config: display current-configuration
+  interfaces: display interface brief
+  cpu: display cpu-usage
+  memory: display memory
+  arp: display arp
+
+ruijie:
+  label: 锐捷
+  netmiko_os: ruijie_os
+  version: show version
+  config: show running-config
+  interfaces: show ip interface brief
+  cpu: show cpu
+  memory: show memory
+  arp: show arp
+
+cisco:
+  label: 思科 IOS
+  netmiko_os: cisco_ios
+  version: show version
+  config: show running-config
+  interfaces: show ip interface brief
+  cpu: show processes cpu
+  memory: show memory statistics
+  arp: show arp

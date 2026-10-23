@@ -1,0 +1,15 @@
+# 运行时产物
+snapshots/
+snapshots_old/
+output/
+*.log
+
+# 真实设备清单可能带内网地址和团体字，不进仓库
+probe/config/devices.yaml
+
+# venv 与缓存
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/

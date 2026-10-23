@@ -1,0 +1,24 @@
+# 设备清单样例。复制成 devices.yaml 再改，devices.yaml 已在 .gitignore 里，
+# 别把真实内网地址、团体字、账号密码提交上去。
+#
+# method 三选一
+#   snmp  只读，最安全，需要设备开了 SNMP 并且知道团体字
+#   ssh   需要账号，能取配置回显
+#   telnet  老设备专用，没有 SSH 才用
+#
+# 注意：这台工具只读。生成的命令都过 ro_guard，写操作一律拒。
+
+devices:
+  - name: 核心交换机
+    ip: 192.168.1.1
+    method: snmp
+    community: public
+    brand: huawei
+
+  # 需要登录取配置的例子
+  # - name: 接入交换机
+  #   ip: 192.168.1.2
+  #   method: ssh
+  #   username: readonly
+  #   password: "改成真实密码，别提交到仓库"
+  #   brand: huawei
