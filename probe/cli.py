@@ -83,7 +83,8 @@ def cmd_collect(args):
                     setattr(dev, k, v)
             dev.reachable = True
         except Exception as e:
-            dev.error = f"{type(e).__name__}: {e}"
+            # 采集层抛的 RuntimeError 里已经写好了人能读的原因，别再套一层类名
+            dev.error = str(e) if isinstance(e, RuntimeError) else f"{type(e).__name__}: {e}"
         results.append(dev.to_dict())
         flag = "ok" if dev.reachable else "失败"
         print(f"  {ip:16s} {flag} {dev.error[:60]}")

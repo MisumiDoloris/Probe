@@ -1,0 +1,16 @@
+# T09 用：同一台设备两个账号，一个密码对、一个错，看失败能不能隔离
+devices:
+  - name: eNSP-SW-01
+    ip: 127.0.0.1
+    port: 20022
+    method: ssh
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"
+  - name: eNSP-SW-01-错密码
+    ip: 127.0.0.1
+    port: 20022
+    method: ssh
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_WRONG_PASSWORD"

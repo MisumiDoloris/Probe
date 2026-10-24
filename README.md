@@ -111,6 +111,8 @@ eNSP 留着验 SSH 和 Telnet 的交互，那部分是 netmiko 和设备真实�
 
 ## 已知的坑
 
+**paramiko 装 5.x 连不上老华为设备。** eNSP 1.3 里的 S5700（VRP 5.110）只提供 `diffie-hellman-group1-sha1` / `group-exchange-sha1`、`aes128-cbc` / `3des-cbc`、`hmac-sha1` 这几样老算法，paramiko 5.x 已经把这些类整个删掉，握手直接抛 `IncompatiblePeer: no acceptable kex algorithm`。实测降到 **paramiko 2.12.0** 就通，netmiko 4.8.0 配 2.12 会报依赖冲突但仍能正常工作。真机上的老设备大概率也是这套老算法，所以这条不是模拟器的特殊情况。
+
 pysnmp 7.x 不能沿用 4.x 的写法。`from pysnmp.hlapi import SnmpEngine` 在 7.x 上直接 ImportError，要用 `pysnmp.hlapi.v3arch.asyncio`。网上教程基本都是旧写法。
 
 `telnetlib` 在 Python 3.13 已被移除。本项目走 netmiko 的 `*_telnet` 设备类型，不依赖 telnetlib，所以在 3.13 上也能跑。那是为了避免 SwitchAutoBackup 那个项目的坑。

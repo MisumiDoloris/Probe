@@ -5,6 +5,8 @@
 二，整体超时要短。巡检一台设备最多给它二十秒，卡住的记失败，不拖着整批。
 """
 
+import re
+
 from .base import Collector
 from ..ro_guard import assert_readonly
 
@@ -88,7 +90,7 @@ class CliCollector(Collector):
                 except Exception as e:
                     raw[key] = f"<失败 {type(e).__name__}: {e}>"
         except Exception as e:
-            raise RuntimeError(f"{type(e).__name__}: {e}")
+            raise RuntimeError(_explain(e))
         finally:
             if conn is not None:
                 try:
@@ -101,8 +103,49 @@ class CliCollector(Collector):
             "method": self.transport,
             "version": _parse_version(version_text),
             "hostname": hostname or cfg.get("name", ""),
+            "vendor": VENDOR_NAMES.get(brand.lower(), brand),
+            "model": _parse_model(version_text),
+            "uptime": _parse_uptime(version_text),
             "raw": raw,
         }
+
+
+VENDOR_NAMES = {"huawei": "华为", "h3c": "华三", "ruijie": "锐捷", "cisco": "思科"}
+
+# 型号出现在 display version 的括号里，比如 (S5700 V200R001C00)。
+# 只认这几种前缀，宁可空着也不瞎猜。
+MODEL_RE = re.compile(r"\b(S\d{4}[A-Za-z-]*|AR\d{4}[A-Za-z-]*|USG\d{4}[A-Za-z-]*|CE\d{4}[A-Za-z-]*|NE\d{4}[A-Za-z-]*)\b")
+
+
+def _parse_model(text):
+    m = MODEL_RE.search(text or "")
+    return m.group(1) if m else ""
+
+
+def _parse_uptime(text):
+    """display version 里那句 uptime is ... 抓出来，抓不到返回空。"""
+    m = re.search(r"uptime is ([^\r\n]+)", text or "", re.I)
+    return m.group(1).strip() if m else ""
+
+
+def _explain(exc):
+    """把底层异常翻成人能读的原因。
+
+    报告里的「待核实」原因栏直接引用这句，所以不能把
+    ReadTimeout: Pattern not detected: '(?:Chang...' 这种原文丢进去。
+    """
+    name = type(exc).__name__
+    text = str(exc)
+    low = text.lower()
+    if "authentication" in low or name == "NetmikoAuthenticationException":
+        return "认证失败：用户名或密码不对"
+    if "readtimeout" in name.lower() or "pattern not detected" in low:
+        return "超时未认出提示符：密码不对（Telnet 会反复要密码）、vty 未允许该协议、或没关分屏"
+    if "refused" in low:
+        return "端口拒绝连接：服务没开或端口号不对"
+    if name == "NetmikoTimeoutException":
+        return "连接超时：地址不通、端口没开或被防火墙拦"
+    return f"{name}: {text[:120]}"
 
 
 def _parse_version(text):

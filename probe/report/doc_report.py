@@ -221,6 +221,11 @@ def build(snapshot, diff_result=None, meta=None):
             for item in diff_result["changed"]:
                 fields = "、".join(c[0] for c in item.get("changes", []))
                 _para(doc, f"{item.get('ip', '')}　变更项：{fields}")
+                for line in item.get("config_diff") or []:
+                    _para(doc, f"　　{line}")
+                extra = (item.get("config_diff_total") or 0) - len(item.get("config_diff") or [])
+                if extra > 0:
+                    _para(doc, f"　　另有 {extra} 行差异，完整内容见快照文件。")
         if not any(s.values()):
             _para(doc, "两次快照之间没有变化。")
 

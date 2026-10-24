@@ -1,0 +1,11 @@
+# 同一台交换机走 Telnet，验证 T06。
+# 隧道要带 20023 那条（笔记本上起隧道时加 -R 20023:192.168.56.10:23）。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 127.0.0.1
+    port: 20023
+    method: telnet
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"

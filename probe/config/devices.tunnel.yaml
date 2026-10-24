@@ -1,0 +1,27 @@
+# 走 SSH 反向隧道的清单：设备在笔记本的 eNSP 里，probe 在服务器上跑。
+#
+# 笔记本那边先起这条（192.168.56.10 换成你实际给设备配的地址）：
+#   ssh -N -R 20022:192.168.56.10:22 -R 20023:192.168.56.10:23 user@SERVER_IP
+#
+# 注意：老 eNSP 要求 VirtualBox 那块 Host-Only 网卡保持 192.168.56.1/24，
+# 改了它 AR 就起不来（错误代码 40），所以设备地址跟网卡同段，用 192.168.56.x。
+# 隧道只出现在服务器本机的 127.0.0.1 上（GatewayPorts 默认 no），所以这里填 127.0.0.1。
+
+
+devices:
+  - name: eNSP-SW-01
+    ip: 127.0.0.1
+    port: 20022
+    method: ssh
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"
+
+  # 同一台走 Telnet，另一个隧道端口
+  # - name: eNSP-SW-01-telnet
+  #   ip: 127.0.0.1
+  #   port: 20023
+  #   method: telnet
+  #   brand: huawei
+  #   username: admin
+  #   password: "CHANGE_ME_PASSWORD"
