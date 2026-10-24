@@ -23,6 +23,7 @@ import yaml
 # 不影响功能，这里按内容过滤掉，其它警告照旧。
 warnings.filterwarnings("ignore", message=".*TripleDES.*")
 
+from . import __version__
 from .collect.base import Device
 from .collect import discovery
 from .collect.snmp import SnmpCollector
@@ -206,7 +207,8 @@ def cmd_report(args):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="probe", description="网络设备巡检（只读）")
+    p = argparse.ArgumentParser(prog="probe", description=f"网络设备巡检（只读） v{__version__}")
+    p.add_argument("--version", action="version", version=f"probe {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("sweep", help="扫网段找在线设备")

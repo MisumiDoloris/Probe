@@ -32,7 +32,7 @@ LEDGER = [
 
 # SNMP 能拿到的只有 sysDescr / sysName，型号和序列号得靠 SSH 或 Telnet 补。
 # 所以这两列空着不算故障，只在待补采里提一句。
-SNMP_BLIND = {"vendor", "model", "serial", "uptime"}
+SNMP_BLIND = {"serial"}   # SNMP 只有序列号真拿不到，品牌型号从 sysDescr 解析，运行时长本来就有
 
 
 def _fmt_time(raw):
