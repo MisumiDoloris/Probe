@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover
 
 
 # 采集哪几类信息。都对应 commands.yaml 里的键。
-COLLECT_KEYS = ("version", "config", "interfaces", "cpu", "memory")
+COLLECT_KEYS = ("version", "config", "interfaces", "cpu", "memory", "serial")
 
 
 class CliCollector(Collector):
@@ -48,8 +48,10 @@ class CliCollector(Collector):
         # 先整表过一遍守卫，再去连设备。
         # 表里有一条写命令就当场抛，绝不因为「还没连上」而把它带到设备上试。
         for key in COLLECT_KEYS:
-            cmd = table.get(key)
-            if cmd:
+            spec = table.get(key)
+            if not spec:
+                continue
+            for cmd in (spec if isinstance(spec, list) else [spec]):
                 assert_readonly(cmd)
 
         os_type = table.get("netmiko_os", "")
@@ -81,14 +83,24 @@ class CliCollector(Collector):
             except Exception:
                 hostname = ""
             for key in COLLECT_KEYS:
-                cmd = table.get(key)
-                if not cmd:
+                spec = table.get(key)
+                if not spec:
                     continue
-                assert_readonly(cmd)          # 只读硬约束，在这里卡
-                try:
-                    raw[key] = conn.send_command(cmd, read_timeout=self.timeout)
-                except Exception as e:
-                    raw[key] = f"<失败 {type(e).__name__}: {e}>"
+                # 一条命令可以写成列表，按顺序试，第一条有正常回显的就用。
+                # 序列号就是这样：不同 VRP 版本认的命令不一样。
+                candidates = spec if isinstance(spec, list) else [spec]
+                for cmd in candidates:
+                    assert_readonly(cmd)      # 只读硬约束，在这里卡
+                    try:
+                        out = conn.send_command(cmd, read_timeout=self.timeout)
+                    except Exception as e:
+                        raw[key] = f"<失败 {type(e).__name__}: {e}>"
+                        continue
+                    if _looks_like_error(out):
+                        raw[key] = f"<不支持 {cmd}>"
+                        continue
+                    raw[key] = out
+                    break
         except Exception as e:
             raise RuntimeError(_explain(e))
         finally:
@@ -106,11 +118,23 @@ class CliCollector(Collector):
             "vendor": VENDOR_NAMES.get(brand.lower(), brand),
             "model": _parse_model(version_text),
             "uptime": _parse_uptime(version_text),
+            "serial": _parse_serial(raw.get("serial", "")),
             "raw": raw,
         }
 
 
 VENDOR_NAMES = {"huawei": "华为", "h3c": "华三", "ruijie": "锐捷", "cisco": "思科"}
+
+# 命令不被这版 VRP 认时的回显特征，用来判断要不要换下一条备选命令。
+ERROR_HINTS = ("Error:", "Unrecognized command", "Too many parameters", "Incomplete command",
+               "Wrong parameter", "% Invalid input", "% Incomplete command")
+
+
+def _looks_like_error(text):
+    head = (text or "").strip()
+    if not head:
+        return True
+    return any(hint in head[:300] for hint in ERROR_HINTS)
 
 # 型号出现在 display version 的括号里，比如 (S5700 V200R001C00)。
 # 只认这几种前缀，宁可空着也不瞎猜。
@@ -126,6 +150,26 @@ def _parse_uptime(text):
     """display version 里那句 uptime is ... 抓出来，抓不到返回空。"""
     m = re.search(r"uptime is ([^\r\n]+)", text or "", re.I)
     return m.group(1).strip() if m else ""
+
+
+# 序列号在各版 VRP 上的写法不统一，这里只认几种明确的标签，抓不到就留空。
+SERIAL_RE = re.compile(
+    r"(?:\bESN\b|\bSN\b|Serial\s*Number|Barcode)\s*(?:of\s+this\s+device)?\s*[:：]?\s*"
+    r"([A-Za-z0-9][A-Za-z0-9\-]{5,})",
+    re.I,
+)
+
+
+def _parse_serial(text):
+    if not text or _looks_like_error(text):
+        return ""
+    for line in str(text).splitlines():
+        if not re.search(r"ESN|\bSN\b|Serial|Barcode", line, re.I):
+            continue
+        m = SERIAL_RE.search(line)
+        if m:
+            return m.group(1).strip()
+    return ""
 
 
 def _explain(exc):
