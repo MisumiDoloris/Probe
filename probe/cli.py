@@ -64,6 +64,38 @@ def cmd_sweep(args):
     return 0
 
 
+# 同一个 IP 写了多条采集方式时，按这个顺序合并，前面的优先。
+# SSH 能取到的字段最全，SNMP 只补它独有的（sysDescr / sysName / uptime）。
+METHOD_PRIORITY = {"ssh": 0, "telnet": 1, "snmp": 2}
+
+
+def _collect_one(cfg, commands):
+    """按一条清单项采一台，返回 dict。失败抛异常。"""
+    ip = cfg.get("ip", "").strip()
+    method = cfg.get("method", "snmp")
+    if method == "snmp":
+        data = SnmpCollector(cfg.get("community", "public")).collect(ip, cfg)
+    else:
+        data = CliCollector(commands, transport=method).collect(ip, cfg)
+    data.setdefault("method", method)
+    return data
+
+
+def _merge_into(base, extra):
+    """把 extra 里的值补到 base 上，base 已有的不覆盖；raw 按字段逐个补。"""
+    for key, val in extra.items():
+        if key in ("raw", "error", "method"):
+            continue
+        if not str(base.get(key, "")).strip() and str(val or "").strip():
+            base[key] = val
+    raw = dict(base.get("raw") or {})
+    for rkey, rval in (extra.get("raw") or {}).items():
+        if not str(raw.get(rkey, "")).strip():
+            raw[rkey] = rval
+    base["raw"] = raw
+    return base
+
+
 def cmd_collect(args):
     devices_cfg = _load_devices(getattr(args, "devices", None))
     commands = _load_yaml("commands.yaml")
@@ -71,28 +103,46 @@ def cmd_collect(args):
         print("devices.yaml 里没有设备，先填。参考 devices.yaml.example")
         return 2
 
-    results = []
+    # 同一个 IP 可能写了多条采集方式，先按 IP 归组，采完再合并成一行台账。
+    grouped = {}
     for cfg in devices_cfg:
         ip = cfg.get("ip", "").strip()
-        if not ip:
-            continue
-        dev = Device(ip=ip)
-        try:
+        if ip:
+            grouped.setdefault(ip, []).append(cfg)
+
+    results = []
+    for ip, cfgs in grouped.items():
+        cfgs = sorted(cfgs, key=lambda c: METHOD_PRIORITY.get(c.get("method", "snmp"), 9))
+        merged = None
+        used, failures = [], []
+        for cfg in cfgs:
             method = cfg.get("method", "snmp")
-            if method == "snmp":
-                data = SnmpCollector(cfg.get("community", "public")).collect(ip, cfg)
-            else:
-                data = CliCollector(commands, transport=method).collect(ip, cfg)
-            for k, v in data.items():
-                if hasattr(dev, k):
-                    setattr(dev, k, v)
+            try:
+                data = _collect_one(cfg, commands)
+            except Exception as e:
+                # 采集层抛的 RuntimeError 里已经写好了人能读的原因，别再套一层类名
+                failures.append((method, str(e) if isinstance(e, RuntimeError) else f"{type(e).__name__}: {e}"))
+                continue
+            used.append(method)
+            merged = data if merged is None else _merge_into(merged, data)
+
+        dev = Device(ip=ip)
+        if merged is None:
+            dev.error = "；".join(f"{m} {msg}" for m, msg in failures) or "没有可用的采集方式"
+        else:
+            for key, val in merged.items():
+                if hasattr(dev, key):
+                    setattr(dev, key, val)
+            dev.method = "+".join(used)
             dev.reachable = True
-        except Exception as e:
-            # 采集层抛的 RuntimeError 里已经写好了人能读的原因，别再套一层类名
-            dev.error = str(e) if isinstance(e, RuntimeError) else f"{type(e).__name__}: {e}"
+            if failures:
+                print(f"  {ip:16s} 部分成功，{('、'.join(m for m, _ in failures))} 没采到")
+
         results.append(dev.to_dict())
-        flag = "ok" if dev.reachable else "失败"
-        print(f"  {ip:16s} {flag} {dev.error[:60]}")
+        if merged is not None:
+            print(f"  {ip:16s} ok  {dev.method}")
+        else:
+            print(f"  {ip:16s} 失败 {dev.error[:60]}")
 
     path = snapshot.save(results, note=args.note)
     print(f"快照已存 {path}")

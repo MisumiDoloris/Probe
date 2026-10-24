@@ -1,0 +1,18 @@
+# 同一台设备写两条采集方式，采完自动合并成台账里的一行。
+# SSH 负责版本、配置、型号、运行时长；SNMP 负责兜底和 sysDescr。
+# 两边都有值的字段以 SSH 为准，SSH 拿不到的用 SNMP 补。
+# 一条成功一条失败不算失败，那台照样出数，控制台会写一句「部分成功」。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 192.168.56.10
+    method: ssh
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"
+
+  - name: eNSP-SW-01
+    ip: 192.168.56.10
+    method: snmp
+    community: public
+    brand: huawei
