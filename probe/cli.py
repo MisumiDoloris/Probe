@@ -15,8 +15,13 @@ report  出 Word 巡检报告（给甲方的那一层）
 import argparse
 import os
 import sys
+import warnings
 
 import yaml
+
+# paramiko 2.12 会为 TripleDES 打一堆弃用警告，每次跑命令都刷屏，
+# 不影响功能，这里按内容过滤掉，其它警告照旧。
+warnings.filterwarnings("ignore", message=".*TripleDES.*")
 
 from .collect.base import Device
 from .collect import discovery
