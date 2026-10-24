@@ -8,6 +8,7 @@
 import re
 
 from .base import Collector
+from .parsing import parse_model, parse_vendor
 from ..ro_guard import assert_readonly
 
 try:
@@ -115,15 +116,14 @@ class CliCollector(Collector):
             "method": self.transport,
             "version": _parse_version(version_text),
             "hostname": hostname or cfg.get("name", ""),
-            "vendor": VENDOR_NAMES.get(brand.lower(), brand),
-            "model": _parse_model(version_text),
+            "vendor": parse_vendor(version_text, brand),
+            "model": parse_model(version_text),
             "uptime": _parse_uptime(version_text),
             "serial": _parse_serial(raw.get("serial", "")),
             "raw": raw,
         }
 
 
-VENDOR_NAMES = {"huawei": "华为", "h3c": "华三", "ruijie": "锐捷", "cisco": "思科"}
 
 # 命令不被这版 VRP 认时的回显特征，用来判断要不要换下一条备选命令。
 ERROR_HINTS = ("Error:", "Unrecognized command", "Too many parameters", "Incomplete command",
@@ -136,14 +136,6 @@ def _looks_like_error(text):
         return True
     return any(hint in head[:300] for hint in ERROR_HINTS)
 
-# 型号出现在 display version 的括号里，比如 (S5700 V200R001C00)。
-# 只认这几种前缀，宁可空着也不瞎猜。
-MODEL_RE = re.compile(r"\b(S\d{4}[A-Za-z-]*|AR\d{4}[A-Za-z-]*|USG\d{4}[A-Za-z-]*|CE\d{4}[A-Za-z-]*|NE\d{4}[A-Za-z-]*)\b")
-
-
-def _parse_model(text):
-    m = MODEL_RE.search(text or "")
-    return m.group(1) if m else ""
 
 
 def _parse_uptime(text):

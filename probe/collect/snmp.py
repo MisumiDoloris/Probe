@@ -8,6 +8,8 @@
 
 import asyncio
 
+from .parsing import parse_model, parse_vendor
+
 try:
     from pysnmp.hlapi.v3arch.asyncio import (
         SnmpEngine,
@@ -80,11 +82,14 @@ class SnmpCollector:
             raise RuntimeError(f"SNMP 失败 {type(e).__name__} {e}")
 
         # sysDescr 一般是 "Huawei Versatile Routing Platform Software ... VRP (R) software, Version 8.180 ..."
+        # 里面带品牌和型号，顺手解析出来，别让 SNMP 那条记录的型号栏永远是空的。
         descr = data.get("descr", "")
         return {
             "method": "snmp",
             "hostname": data.get("name", ""),
             "version": descr[:200],
             "uptime": data.get("uptime", ""),
+            "vendor": parse_vendor(descr),
+            "model": parse_model(descr),
             "raw": {"sysDescr": descr, "sysName": data.get("name", "")},
         }
