@@ -36,6 +36,8 @@ python -m probe.cli report --dir demo/snapshots --diff --out /tmp/巡检报告.d
 
 ## 怎么跑
 
+Windows 上最省事是双击 `00_巡检菜单.bat`，七项菜单对应下面这些命令，不用记参数。
+
 依赖装好了在 `/home/doloris/netops/venv`。
 
     cd /home/doloris/netops/probe

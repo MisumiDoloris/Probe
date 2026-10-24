@@ -144,7 +144,7 @@ def build(snapshot, diff_result=None, meta=None):
     _para(doc, "")
     _para(doc, "")
     _para(doc, meta.get("title", "网络设备巡检报告"), FONT_HEAD, 26, True, WD_ALIGN_PARAGRAPH.CENTER, 18)
-    _para(doc, meta.get("org", "（单位名称）"), FONT_BODY, 14, False, WD_ALIGN_PARAGRAPH.CENTER, 40)
+    _para(doc, meta.get("org", "＿＿＿＿＿＿＿＿"), FONT_BODY, 14, False, WD_ALIGN_PARAGRAPH.CENTER, 40)
     for line in [
         f"报告编号：{meta.get('report_no', PLACEHOLDER)}",
         f"巡检日期：{_fmt_time(taken_at) if taken_at else PLACEHOLDER}",

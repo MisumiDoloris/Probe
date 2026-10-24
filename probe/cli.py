@@ -181,8 +181,8 @@ def main(argv=None):
     r.add_argument("--diff", action="store_true", help="带上与上一份快照的对比")
     r.add_argument("--out", default="output/巡检报告.docx")
     r.add_argument("--title", default="网络设备巡检报告")
-    r.add_argument("--org", default="（单位名称）")
-    r.add_argument("--report-no", dest="report_no", default="＿＿＿＿")
+    r.add_argument("--org", default="＿＿＿＿＿＿＿＿")
+    r.add_argument("--report-no", dest="report_no", default="＿＿＿＿＿＿")
     r.add_argument("--inspector", default="＿＿＿")
     r.set_defaults(func=cmd_report)
 
