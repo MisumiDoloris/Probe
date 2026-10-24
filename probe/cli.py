@@ -37,6 +37,19 @@ def _load_yaml(name):
         return yaml.safe_load(f) or {}
 
 
+def _load_devices(arg=None):
+    """设备清单。默认读 config/devices.yaml，--devices 可以指到别处。
+
+    一个客户一份清单，换现场不用改代码，也不用把清单混在一起。
+    """
+    path = arg or os.path.join(CONFIG_DIR, "devices.yaml")
+    if not os.path.exists(path):
+        print(f"找不到设备清单 {path}，参考 config/devices.yaml.example")
+        return []
+    with open(path, encoding="utf-8") as f:
+        return (yaml.safe_load(f) or {}).get("devices", [])
+
+
 def cmd_sweep(args):
     print(f"扫 {args.network}  ...")
     found = discovery.sweep(args.network, workers=args.workers)
@@ -47,7 +60,7 @@ def cmd_sweep(args):
 
 
 def cmd_collect(args):
-    devices_cfg = _load_yaml("devices.yaml").get("devices", [])
+    devices_cfg = _load_devices(getattr(args, "devices", None))
     commands = _load_yaml("commands.yaml")
     if not devices_cfg:
         print("devices.yaml 里没有设备，先填。参考 devices.yaml.example")
@@ -66,7 +79,8 @@ def cmd_collect(args):
             else:
                 data = CliCollector(commands, transport=method).collect(ip, cfg)
             for k, v in data.items():
-                setattr(dev, k, v) if hasattr(dev, k) else None
+                if hasattr(dev, k):
+                    setattr(dev, k, v)
             dev.reachable = True
         except Exception as e:
             dev.error = f"{type(e).__name__}: {e}"
@@ -146,6 +160,7 @@ def main(argv=None):
 
     c = sub.add_parser("collect", help="按清单采集并存快照")
     c.add_argument("--note", default="")
+    c.add_argument("--devices", default=None, help="设备清单 yaml，默认 probe/config/devices.yaml")
     c.add_argument("--excel", default="output/台账.xlsx")
     c.add_argument("--no-excel", action="store_true")
     c.set_defaults(func=cmd_collect)

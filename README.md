@@ -60,6 +60,8 @@ python -m probe.cli report --dir demo/snapshots --diff --out /tmp/巡检报告.d
 
 跑通的：探活、SNMP 采集、只读守卫、快照、diff、Excel 台账、Word 报告。SNMP 这一条不是"应该能跑"，是拿 snmpsim 起的假设备实测过的，取到了 sysDescr、sysName、uptime，改数据再采能正确检出设备名和版本变更。
 
+自测：`python -m unittest discover -s tests -v`，六条用例覆盖只读守卫十五条命令和采集层是否真调守卫，不需要任何设备。
+
 还没验证的：SSH 和 Telnet 采集要真实设备或者 eNSP 才能验。本机只有一个路由器而且没开 SNMP。
 
 Word 报告这一层已经出来了：封面、巡检结论、设备台账、异常与待核实、变更清单、只读声明、签字栏（巡检人／审核人／甲方确认／日期）。

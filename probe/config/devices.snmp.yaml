@@ -1,0 +1,10 @@
+# eNSP Pro 单台 S5700：SNMP 方式（T04）
+# 设备侧要先 snmp-agent、版本 v2c、community read public，
+# 并且一定要 snmp-agent protocol source-interface Vlanif1，否则回包从错接口出去。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 10.0.0.1
+    method: snmp
+    community: public
+    brand: huawei

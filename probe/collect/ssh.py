@@ -43,6 +43,13 @@ class CliCollector(Collector):
         brand = cfg.get("brand", "")
         table = self._pick_commands(brand)
 
+        # 先整表过一遍守卫，再去连设备。
+        # 表里有一条写命令就当场抛，绝不因为「还没连上」而把它带到设备上试。
+        for key in COLLECT_KEYS:
+            cmd = table.get(key)
+            if cmd:
+                assert_readonly(cmd)
+
         os_type = table.get("netmiko_os", "")
         if self.transport == "telnet" and not os_type.endswith("_telnet"):
             os_type = f"{os_type}_telnet"
@@ -63,8 +70,14 @@ class CliCollector(Collector):
 
         raw = {}
         conn = None
+        hostname = ""
         try:
             conn = ConnectHandler(**params)
+            # 设备真名从提示符里读（<TEST-SW-01> / [TEST-SW-01]），比配置里写的标签可靠。
+            try:
+                hostname = conn.find_prompt().strip().strip("<>[]").strip()
+            except Exception:
+                hostname = ""
             for key in COLLECT_KEYS:
                 cmd = table.get(key)
                 if not cmd:
@@ -87,7 +100,7 @@ class CliCollector(Collector):
         return {
             "method": self.transport,
             "version": _parse_version(version_text),
-            "hostname": cfg.get("name", ""),
+            "hostname": hostname or cfg.get("name", ""),
             "raw": raw,
         }
 

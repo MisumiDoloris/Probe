@@ -1,0 +1,12 @@
+# eNSP Pro 单台 S5700：SSH 方式（T05 / T06）
+# 设备侧要先配好管理地址 10.0.0.1/24、stelnet server enable、aaa 本地用户、
+# user-interface vty 下 authentication-mode aaa + protocol inbound all + screen-length 0。
+# 步骤见 eNSP_Pro测试方案.md 第三节。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 10.0.0.1
+    method: ssh
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"

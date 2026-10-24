@@ -1,0 +1,11 @@
+# eNSP Pro 单台 S5700：Telnet 方式（T06）
+# VRP8 上 telnet 默认被判定不安全，先 install feature-software WEAKEA 再 telnet server enable。
+# aaa 下本地用户要带 service-type telnet ssh。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 10.0.0.1
+    method: telnet
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"
