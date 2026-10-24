@@ -19,18 +19,26 @@ def _index(snapshot):
 
 
 def _config_diff(old_dev, new_dev, limit=MAX_DIFF_LINES):
-    """配置回显的行级差异。返回 ['+ vlan 20', '- vlan batch 1 2'] 这种。"""
-    a = str((old_dev.get("raw") or {}).get("config", "")).splitlines()
-    b = str((new_dev.get("raw") or {}).get("config", "")).splitlines()
+    """配置回显的行级差异。
+
+    返回 (证据行, 总数, 说明)。三种特殊情况单独说明，不能把「这次没取到回显」
+    渲染成满屏的删除行 —— 那会被读成「设备配置被删了」。
+    """
+    a = str((old_dev.get("raw") or {}).get("config", "")).strip()
+    b = str((new_dev.get("raw") or {}).get("config", "")).strip()
     if not a and not b:
-        return [], 0
+        return [], 0, ""
+    if a and not b:
+        return [], 0, "本次没取到配置回显（多半采集失败），无法比对"
+    if b and not a:
+        return [], 0, "上次没取到配置回显，这次取到了，本次是第一次可比"
     lines = []
-    for line in difflib.unified_diff(a, b, lineterm="", n=0):
+    for line in difflib.unified_diff(a.splitlines(), b.splitlines(), lineterm="", n=0):
         if line.startswith(("---", "+++")):
             continue
         if line[:1] in "+-" and line[1:].strip():
             lines.append(line.rstrip())
-    return lines[:limit], len(lines)
+    return lines[:limit], len(lines), ""
 
 
 def compare(old_snap, new_snap):
@@ -54,9 +62,10 @@ def compare(old_snap, new_snap):
                 diffs.append(("hostname", a.get("hostname", ""), b.get("hostname", "")))
             diffs.append(("config", "有变化", "有变化"))
         if diffs:
-            lines, total = _config_diff(a, b)
+            lines, total, note = _config_diff(a, b)
             changed.append({"ip": ip, "changes": diffs,
-                            "config_diff": lines, "config_diff_total": total})
+                            "config_diff": lines, "config_diff_total": total,
+                            "config_diff_note": note})
 
     return {
         "old_at": old_snap.get("taken_at", ""),
@@ -97,6 +106,8 @@ def to_lines(result):
         for item in result["changed"]:
             fields = "、".join(c[0] for c in item["changes"])
             out.append(f"  {item['ip']}  变了 {fields}")
+            if item.get("config_diff_note"):
+                out.append(f"      {item['config_diff_note']}")
             for line in item.get("config_diff") or []:
                 out.append(f"      {line}")
             extra = (item.get("config_diff_total") or 0) - len(item.get("config_diff") or [])

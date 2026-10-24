@@ -1,0 +1,20 @@
+# 设备桥到家里局域网，服务器直连（不走 SSH 隧道）。
+# 用之前先确认 192.168.56.20 没有被路由器 DHCP 发出去，最好的做法是在路由器里排除这个地址。
+#
+# 前提：eNSP 的 Cloud 绑定的是笔记本家里那块网卡（WLAN 或以太网），不是 VirtualBox Host-Only。
+# 交换机 Vlanif1 配 192.168.56.20/24，并且保持 snmp-agent protocol source-interface Vlanif1。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 192.168.56.20
+    method: ssh
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"
+
+  # SNMP 那条只有在这条路上才测得到（隧道搬不了 UDP）
+  # - name: eNSP-SW-01
+  #   ip: 192.168.56.20
+  #   method: snmp
+  #   community: public
+  #   brand: huawei

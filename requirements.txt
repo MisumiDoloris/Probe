@@ -1,4 +1,12 @@
+# 依赖版本以这套为准（2026-10-24 在 eNSP S5700 上实测跑通）
+#
+# paramiko 必须钉在 2.12.0：老华为设备只提供 diffie-hellman-group1-sha1、
+# aes128-cbc、hmac-sha1 这套老算法，paramiko 3 以后把这些实现整类删掉，
+# 握手直接报 IncompatiblePeer: no acceptable kex algorithm。
+# pip 会提示 netmiko 要求 paramiko>=3.5.1 的依赖冲突，可以忽略，
+# 实测 netmiko 4.8.0 + paramiko 2.12.0 采集正常。
 netmiko>=4.2
+paramiko==2.12.0
 pysnmp>=7.1
 pandas>=2.0
 openpyxl>=3.1

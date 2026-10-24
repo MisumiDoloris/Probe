@@ -1,0 +1,14 @@
+# 本地跑（probe 在笔记本上）：SNMP 采集，这条只有在同一台机器上才测得到。
+# 设备侧要先敲：
+#   system-view
+#   snmp-agent
+#   snmp-agent sys-info version v2c
+#   snmp-agent community read public
+# 这版 S5700（VRP 5.110）没有 snmp-agent protocol source-interface 这条，单人 Vlanif 设备也不用配。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 192.168.56.10
+    method: snmp
+    community: public
+    brand: huawei

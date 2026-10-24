@@ -221,6 +221,8 @@ def build(snapshot, diff_result=None, meta=None):
             for item in diff_result["changed"]:
                 fields = "、".join(c[0] for c in item.get("changes", []))
                 _para(doc, f"{item.get('ip', '')}　变更项：{fields}")
+                if item.get("config_diff_note"):
+                    _para(doc, f"　　{item['config_diff_note']}")
                 for line in item.get("config_diff") or []:
                     _para(doc, f"　　{line}")
                 extra = (item.get("config_diff_total") or 0) - len(item.get("config_diff") or [])

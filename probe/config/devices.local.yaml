@@ -1,0 +1,10 @@
+# 本地跑（probe 在笔记本上）：SSH 采集。
+# 前提：交换机 Vlanif1 = 192.168.56.10/24，云绑 VirtualBox Host-Only 那块网卡。
+
+devices:
+  - name: eNSP-SW-01
+    ip: 192.168.56.10
+    method: ssh
+    brand: huawei
+    username: admin
+    password: "CHANGE_ME_PASSWORD"
