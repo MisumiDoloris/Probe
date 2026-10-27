@@ -83,5 +83,42 @@ class TestCollectReadsEnv(unittest.TestCase):
             self.assertEqual(field_value(cfg, "password"), "DemoPass123")
 
 
+class TestSnmpCommunityFromEnv(unittest.TestCase):
+    """SNMP 那条也要能用环境变量，而且不能被 cfg 里的字面值顶掉。"""
+
+    def _fake(self, seen):
+        def fake(ip, community, port=161, **kw):
+            seen["community"] = community
+            seen["port"] = port
+            return {"descr": "Huawei Versatile Routing Platform (S5700 V200R001C00)",
+                    "name": "SW-01", "uptime": "123456"}
+        return fake
+
+    def test_community_env_reaches_snmp_layer(self):
+        from probe.collect import snmp
+        seen = {}
+        with mock.patch.dict(os.environ, {"PROBE_COMM": "readonly_x"}), \
+             mock.patch.object(snmp, "get_mib2", side_effect=self._fake(seen)):
+            data = snmp.SnmpCollector().collect("10.0.0.1", {"port": 1610, "community_env": "PROBE_COMM"})
+        self.assertEqual(seen["community"], "readonly_x")
+        self.assertEqual(seen["port"], 1610)
+        self.assertEqual(data["model"], "S5700")
+        self.assertEqual(data["vendor"], "华为")
+
+    def test_plain_community_still_works(self):
+        from probe.collect import snmp
+        seen = {}
+        with mock.patch.object(snmp, "get_mib2", side_effect=self._fake(seen)):
+            snmp.SnmpCollector().collect("10.0.0.1", {"community": "public"})
+        self.assertEqual(seen["community"], "public")
+
+    def test_default_when_nothing_given(self):
+        from probe.collect import snmp
+        seen = {}
+        with mock.patch.object(snmp, "get_mib2", side_effect=self._fake(seen)):
+            snmp.SnmpCollector().collect("10.0.0.1", {})
+        self.assertEqual(seen["community"], "public")
+
+
 if __name__ == "__main__":
     unittest.main()

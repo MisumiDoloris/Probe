@@ -8,6 +8,7 @@
 
 import asyncio
 
+from .base import field_value
 from .parsing import parse_model, parse_vendor
 
 try:
@@ -74,8 +75,10 @@ class SnmpCollector:
 
     def collect(self, ip, device_cfg=None):
         cfg = device_cfg or {}
-        community = cfg.get("community", self.community)
-        port = int(cfg.get("port", self.port))
+        # 也用 field_value：清单里写 community_env 时走环境变量，
+        # 别再拿 cfg.get("community") 直接取，那样会把环境变量的值顶掉。
+        community = field_value(cfg, "community", self.community)
+        port = int(cfg.get("port") or self.port)
         try:
             data = get_mib2(ip, community, port=port)
         except Exception as e:
