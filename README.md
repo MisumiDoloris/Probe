@@ -60,15 +60,17 @@ Windows 上最省事是双击 `00_巡检菜单.bat`，七项菜单对应下面�
 
 ## 现在的状态
 
-跑通的：探活、SNMP 采集、只读守卫、快照、diff、Excel 台账、Word 报告。SNMP 这一条不是"应该能跑"，是拿 snmpsim 起的假设备实测过的，取到了 sysDescr、sysName、uptime，改数据再采能正确检出设备名和版本变更。
+真机验过的（eNSP 里 S5700 真镜像，VRP 5.110）：
 
-自测：`python -m unittest discover -s tests -v`，六条用例覆盖只读守卫十五条命令和采集层是否真调守卫，不需要任何设备。
+- SSH、Telnet、SNMP 三条采集路径都跑通。型号从 `display version` 解析出 S5700，配置回显 1912 字符 103 行、末尾没有分页符
+- **只读硬证据**：连采两次，两份配置回显逐字节相同（sha256 一致、设备指纹一致），diff 报「没有变化」。这条是说「工具只读」唯一算数的证据
+- **设备检出**：清单里多一台报「新增 1 台」，少一台报「下线 1 台」，报告第 5 节写「本次未扫到的设备，需确认是下线还是故障」
+- **结论跟着数据走**：只有干净数据时写「可交付」，有下线时写「有变更需确认」，而且只读声明那一段会跟着改口，不再出现「结论说不能当盘点结论、声明说可以当资产记录」的自相矛盾
+- **采集失败隔离**：清单里混一台连不上的，另一台照采、台账照出，控制台写明几台里采到几台
 
-还没验证的：SSH 和 Telnet 采集要真实设备或者 eNSP 才能验。本机只有一个路由器而且没开 SNMP。
+自测 `python -m unittest discover -s tests`，113 条，不需要任何设备。
 
-Word 报告这一层已经出来了：封面、巡检结论、设备台账、异常与待核实、变更清单、只读声明、签字栏（巡检人／审核人／甲方确认／日期）。
-口径上定死了三条：空字段写「未采集到」不留白；采集失败的设备进异常表并带原因，结论栏这时只能写「需核实」；没依据不写「全部正常」。
-SNMP 协议里本来就没有序列号，这一栏只能走 SSH 或 Telnet 补；品牌、型号从 sysDescr 里解析，解析得出的就不会空。台账里凡是空着的栏，报告第 4 节都会列出来并写明是补采还是重跑采集。
+没验过的：H3C、锐捷、思科的真机（eNSP 只有华为设备，命令表里那三组 `netmiko_os` 还是抄来的，没在真机上确认过）；三台以上异构拓扑；PDF 出口。
 
 还没写的：PDF 出口。现在只出 .docx，转 PDF 得另装 LibreOffice 或 docx2pdf，这台机上没装。
 
@@ -120,6 +122,17 @@ eNSP 留着验 SSH 和 Telnet 的交互，那部分是 netmiko 和设备真实�
 - 2 跑之前就被拦下了：清单缺字段或格式不对、命令表有错、快照读不了、网段写错、输出路径不对。控制台会写清第几条、哪台、哪个字段
 
 ## 已知的坑
+
+**老 VRP5（V200R001 这一代）的 SSH 要在服务侧再声明一次用户，光在 `aaa` 里建用户不够。** 除了 `local-user admin password cipher xxx`、`privilege level 15`、`service-type ssh`，还必须加：
+
+```
+ssh user admin authentication-type password
+ssh user admin service-type stelnet
+```
+
+少了这两条，密码明明是对的也一律 `authenticate fail`，而 `display current-configuration` 里不容易看出来，配置看上去完全正常。诊断靠设备侧的 `display aaa online-fail-record all`。
+
+这也是排查时最容易被带偏的一条：先怀疑密码、怀疑隧道、怀疑 SSP 算法，实际上是被漏掉的两行。另外别连续试密码，华为默认失败几次就锁一段时间，锁上之后对的密码也不认。
 
 **paramiko 装 5.x 连不上老华为设备。** eNSP 1.3 里的 S5700（VRP 5.110）只提供 `diffie-hellman-group1-sha1` / `group-exchange-sha1`、`aes128-cbc` / `3des-cbc`、`hmac-sha1` 这几样老算法，paramiko 5.x 已经把这些类整个删掉，握手直接抛 `IncompatiblePeer: no acceptable kex algorithm`。实测降到 **paramiko 2.12.0** 就通，netmiko 4.8.0 配 2.12 会报依赖冲突但仍能正常工作。真机上的老设备大概率也是这套老算法，所以这条不是模拟器的特殊情况。
 
