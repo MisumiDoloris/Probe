@@ -2,6 +2,9 @@
 
 只吃快照（可选一份对比结果），不碰采集层。采集方式换了这里一行不用动。
 出一份能交给甲方的东西：封面、结论、台账、异常、变更、只读声明、签字栏。
+
+一条硬规矩贯穿全文件：台账里出现的每一个空白，第 4 节都必须解释它在哪、
+为什么空、下一步谁来补。空白不解释，甲方会读成「设备本来没有这项」。
 """
 
 import os
@@ -13,6 +16,9 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
+
+from ..collect.parsing import parse_model, parse_vendor
+from .fields import clean_value as _clean, fmt_uptime as _fmt_uptime
 
 FONT_BODY = "仿宋"
 FONT_HEAD = "黑体"
@@ -30,10 +36,6 @@ LEDGER = [
     ("method", "采集方式"),
 ]
 
-# SNMP 能拿到的只有 sysDescr / sysName，型号和序列号得靠 SSH 或 Telnet 补。
-# 所以这两列空着不算故障，只在待补采里提一句。
-SNMP_BLIND = {"serial"}   # SNMP 只有序列号真拿不到，品牌型号从 sysDescr 解析，运行时长本来就有
-
 
 def _fmt_time(raw):
     """快照里的时间戳是 20261022_203616 这种，给人看的要成 2026-10-22 20:36。"""
@@ -43,6 +45,22 @@ def _fmt_time(raw):
         return raw or "未记录"
     y, mo, d, h, mi, se = m.groups()
     return f"{y}-{mo}-{d} {h}:{mi}:{se}"
+
+
+def _sysdescr_of(device):
+    return str((device.get("raw") or {}).get("sysDescr", ""))
+
+
+def _hit_in_sysdescr(device, key):
+    """这一栏是不是本来能从 sysDescr 里解析出来。用来区分「解析不出」和「没入库」。"""
+    text = _sysdescr_of(device)
+    if not text:
+        return False
+    if key == "vendor":
+        return bool(parse_vendor(text))
+    if key == "model":
+        return bool(parse_model(text))
+    return False
 
 
 def _font(run, name=FONT_BODY, size=10.5, bold=False):
@@ -89,8 +107,13 @@ def _table(doc, headers, rows, font_size=9):
 
 
 def _stats(devices):
+    """总数、成功、失败三者的关系必须闭合：total == 成功 + 失败。
+
+    探活不通也算失败。以前只认 error 非空，会出现一台设备既不算成功也不算失败，
+    汇总表的数字加起来对不上，而结论照样写「均可交付」。
+    """
     total = len(devices)
-    failed = [d for d in devices if d.get("error")]
+    failed = [d for d in devices if d.get("error") or not d.get("reachable")]
     ok = [d for d in devices if not d.get("error") and d.get("reachable")]
     methods = {}
     for d in devices:
@@ -99,15 +122,33 @@ def _stats(devices):
     return total, ok, failed, methods
 
 
-def _blind_fields(devices):
-    """SNMP 采集拿不到的字段，按设备记一笔，提示补采。"""
+def _missing_rows(devices):
+    """逐格核对台账，把空着的栏连原因一起列出来。
+
+    以前按「SNMP 拿不到哪些字段」的白名单判断，于是纯 SNMP 采到的设备
+    品牌、型号空着也不进异常段，报告上就是「设备本来没这两项」。
+    现在改成逐格核对：任何空栏都要有去处，要么补采，要么重跑采集。
+    """
     rows = []
     for d in devices:
-        if d.get("error") or d.get("method") != "snmp":
-            continue
-        missing = [label for key, label in LEDGER if key in SNMP_BLIND and not str(d.get(key, "")).strip()]
-        if missing:
-            rows.append((d.get("ip", ""), "、".join(missing)))
+        if d.get("error") or not d.get("reachable"):
+            continue  # 整台失败的已经在「采集失败」里说了，不重复列
+        method = str(d.get("method", "")).strip()
+        notes = []
+        for key, label in LEDGER:
+            val, unsupported = _clean(d.get(key))
+            if val:
+                continue
+            if unsupported:
+                notes.append(f"{label}（{unsupported}）")
+            elif key == "serial" and method == "snmp":
+                notes.append(f"{label}（SNMP 协议不提供）")
+            elif key in ("vendor", "model", "serial", "version") and _hit_in_sysdescr(d, key):
+                notes.append(f"{label}（快照里没入库，需重跑采集）")
+            else:
+                notes.append(f"{label}（未取到）")
+        if notes:
+            rows.append((d.get("ip", ""), "字段待补采", "；".join(notes)))
     return rows
 
 
@@ -117,11 +158,14 @@ def _verdict(devices, diff_result):
         return "需核实", f"{len(failed)} 台设备采集失败，原因见第 4 节。这份报告不能当盘点结论用。"
     if total == 0:
         return "需核实", "快照里没有设备，清单可能是空的。"
-    if diff_result and any(diff_result.get("summary", {}).values()):
-        s = diff_result["summary"]
-        return "有变更需确认", (
-            f"与上次相比新增 {s['added']} 台、下线 {s['removed']} 台、配置变更 {s['changed']} 台，见第 5 节。"
-        )
+    if diff_result:
+        s = diff_result.get("summary", {}) or {}
+        if s.get("added") or s.get("removed") or s.get("changed"):
+            return (
+                "有变更需确认",
+                f"与上次相比新增 {s.get('added', 0)} 台、下线 {s.get('removed', 0)} 台、"
+                f"发生变化 {s.get('changed', 0)} 台，见第 5 节。",
+            )
     return "可交付", f"本次 {total} 台设备均取到回显，无采集异常。"
 
 
@@ -132,6 +176,7 @@ def build(snapshot, diff_result=None, meta=None):
     taken_at = snapshot.get("taken_at", "")
     total, ok, failed, methods = _stats(devices)
     verdict, why = _verdict(devices, diff_result)
+    missing = _missing_rows(devices)
 
     doc = Document()
     for section in doc.sections:
@@ -161,7 +206,11 @@ def build(snapshot, diff_result=None, meta=None):
         desc = "、".join(f"{m} {n} 台" for m, n in sorted(methods.items()))
         _para(doc, f"采集方式：{desc}。")
     _para(doc, "采集过程只下发查询类命令（show、display），不进入配置模式，不对设备做任何写操作。")
-    _para(doc, "SNMP 采集能取到的是系统描述与设备名，品牌、型号、序列号要靠 SSH 或 Telnet 补采。")
+    _para(
+        doc,
+        "SNMP 采集只取到系统描述与设备名。品牌、型号从系统描述里解析，解析不出的需要 SSH 或 Telnet 补；"
+        "序列号 SNMP 协议本身不提供。台账里凡是没取到的栏，都在第 4 节列出并写明下一步怎么补。",
+    )
 
     # 三、结论
     _heading(doc, "二、巡检结论")
@@ -169,8 +218,8 @@ def build(snapshot, diff_result=None, meta=None):
     _para(doc, "")
     _table(
         doc,
-        ["设备总数", "采集成功", "采集失败", "待补采"],
-        [[total, len(ok), len(failed), len(_blind_fields(devices))]],
+        ["设备总数", "采集成功", "采集失败", "待补采设备"],
+        [[total, len(ok), len(failed), len(missing)]],
     )
 
     # 四、台账
@@ -180,7 +229,9 @@ def build(snapshot, diff_result=None, meta=None):
         for d in devices:
             row = []
             for key, _label in LEDGER:
-                val = str(d.get(key, "")).strip()
+                val, _unsupported = _clean(d.get(key))
+                if key == "uptime":
+                    val = _fmt_uptime(val)
                 if key == "version" and len(val) > 60:
                     val = val[:60] + "…"
                 row.append(val or "未采集到")
@@ -193,13 +244,15 @@ def build(snapshot, diff_result=None, meta=None):
     _heading(doc, "四、异常与待核实")
     issues = []
     for d in failed:
-        issues.append((d.get("ip", ""), "采集失败", str(d.get("error", ""))[:80]))
-    for ip, fields in _blind_fields(devices):
-        issues.append((ip, "字段待补采", f"{fields} 未取到，需 SSH 或 Telnet 补采"))
+        reason = str(d.get("error") or "").strip() or "未取到回显，设备可能没开机、地址不通或采集没执行"
+        issues.append((d.get("ip", ""), "采集失败", reason[:80]))
+    about = "需 SSH 或 Telnet 补采；标注「需重跑采集」的是快照里本来有依据、字段没入库，重跑一次即可"
+    for ip, kind, note in missing:
+        issues.append((ip, kind, f"{note}。{about}"))
     if issues:
         _table(doc, ["IP 地址", "问题", "说明"], issues)
     else:
-        _para(doc, "本次没有采集失败，也没有需要补采的字段。")
+        _para(doc, "本次没有采集失败，台账里也没有空着的字段。")
 
     # 六、变更（有对比才出）
     if diff_result:
@@ -208,8 +261,8 @@ def build(snapshot, diff_result=None, meta=None):
             doc,
             f"对比区间：{_fmt_time(diff_result.get('old_at'))} 至 {_fmt_time(diff_result.get('new_at'))}。",
         )
-        s = diff_result.get("summary", {})
-        _para(doc, f"新增 {s.get('added', 0)} 台，下线 {s.get('removed', 0)} 台，配置变更 {s.get('changed', 0)} 台。")
+        s = diff_result.get("summary", {}) or {}
+        _para(doc, f"新增 {s.get('added', 0)} 台，下线 {s.get('removed', 0)} 台，发生变化 {s.get('changed', 0)} 台。")
         if diff_result.get("added"):
             _para(doc, "新出现的设备，需确认是否为私接：", bold=True)
             _para(doc, "、".join(diff_result["added"]))
@@ -217,7 +270,7 @@ def build(snapshot, diff_result=None, meta=None):
             _para(doc, "本次未扫到的设备，需确认是下线还是故障：", bold=True)
             _para(doc, "、".join(diff_result["removed"]))
         if diff_result.get("changed"):
-            _para(doc, "配置或版本发生变化的设备，需有人说明变更时间与操作人：", bold=True)
+            _para(doc, "内容发生变化的设备，需有人说明变更时间与操作人：", bold=True)
             for item in diff_result["changed"]:
                 fields = "、".join(c[0] for c in item.get("changes", []))
                 _para(doc, f"{item.get('ip', '')}　变更项：{fields}")
@@ -228,7 +281,7 @@ def build(snapshot, diff_result=None, meta=None):
                 extra = (item.get("config_diff_total") or 0) - len(item.get("config_diff") or [])
                 if extra > 0:
                     _para(doc, f"　　另有 {extra} 行差异，完整内容见快照文件。")
-        if not any(s.values()):
+        if not (s.get("added") or s.get("removed") or s.get("changed")):
             _para(doc, "两次快照之间没有变化。")
 
     # 七、只读声明

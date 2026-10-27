@@ -54,18 +54,27 @@ def compare(old_snap, new_snap):
     changed = []
     for ip in sorted(old_ips & new_ips):
         a, b = old[ip], new[ip]
+        if a.get("fingerprint") == b.get("fingerprint"):
+            continue
         diffs = []
-        if a.get("fingerprint") != b.get("fingerprint"):
-            if a.get("version") != b.get("version"):
-                diffs.append(("version", a.get("version", ""), b.get("version", "")))
-            if a.get("hostname") != b.get("hostname"):
-                diffs.append(("hostname", a.get("hostname", ""), b.get("hostname", "")))
+        if a.get("version") != b.get("version"):
+            diffs.append(("version", a.get("version", ""), b.get("version", "")))
+        if a.get("hostname") != b.get("hostname"):
+            diffs.append(("hostname", a.get("hostname", ""), b.get("hostname", "")))
+        lines, total, note = _config_diff(a, b)
+        if lines or total or note:
+            # 只有配置回显真的不同（或这次没取到回显）才算配置变化。
+            # 以前是只要指纹变就无条件加一条「配置有变化」，于是一次版本升级
+            # 报告就写「配置被改过」却列不出一行证据，甲方没法签这个字。
             diffs.append(("config", "有变化", "有变化"))
-        if diffs:
-            lines, total, note = _config_diff(a, b)
-            changed.append({"ip": ip, "changes": diffs,
-                            "config_diff": lines, "config_diff_total": total,
-                            "config_diff_note": note})
+        elif str((a.get("raw") or {}).get("interfaces", "")) != str((b.get("raw") or {}).get("interfaces", "")):
+            diffs.append(("interfaces", "有变化", "有变化"))
+        if not diffs:
+            # 指纹变了却对不上任何一项，宁可报出来让人看一眼，也不静默放过。
+            diffs.append(("指纹", "有变化", "有变化"))
+        changed.append({"ip": ip, "changes": diffs,
+                        "config_diff": lines, "config_diff_total": total,
+                        "config_diff_note": note})
 
     return {
         "old_at": old_snap.get("taken_at", ""),

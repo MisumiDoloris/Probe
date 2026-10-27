@@ -32,6 +32,25 @@ def fingerprint(device: dict) -> str:
     return hashlib.sha256(basis.encode("utf-8", "replace")).hexdigest()[:16]
 
 
+def _free_path(base_dir, name):
+    """同名文件已存在就加序号，绝不覆盖。
+
+    文件名到秒，同一秒跑两次采集（复测、脚本连跑、bat 连点两次）会撞上。
+    撞了就直接覆盖的话，diff 拿到的「上一次」其实是这一次，报告里那段
+    「与上次相比」整个失真，而且一声不响。
+
+    后缀用下划线而不是短横线：字典序里 '_' 排在 '.' 之后，
+    带序号的排在原文件后面，list_files 取最新才不会取反。
+    """
+    stem, ext = os.path.splitext(name)
+    path = os.path.join(base_dir, name)
+    n = 1
+    while os.path.exists(path):
+        path = os.path.join(base_dir, f"{stem}_{n}{ext}")
+        n += 1
+    return path
+
+
 def save(devices, base_dir=SNAPSHOT_DIR, note=""):
     os.makedirs(base_dir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -46,7 +65,7 @@ def save(devices, base_dir=SNAPSHOT_DIR, note=""):
         item["fingerprint"] = fingerprint(d)
         payload["devices"].append(item)
 
-    path = os.path.join(base_dir, f"snapshot_{_slug(ts)}.json")
+    path = _free_path(base_dir, f"snapshot_{_slug(ts)}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     return path
