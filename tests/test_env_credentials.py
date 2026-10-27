@@ -61,7 +61,7 @@ class TestValidateEnvKeys(unittest.TestCase):
 
     def test_plain_password_still_works(self):
         """老清单里直接写 password: 的继续能用，不强制迁移。"""
-        self.assertEqual(cli._validate_devices([dev(password="Admin@12345")], CMDS), [])
+        self.assertEqual(cli._validate_devices([dev(password="DemoPass123")], CMDS), [])
 
 
 class TestCollectReadsEnv(unittest.TestCase):
@@ -76,11 +76,11 @@ class TestCollectReadsEnv(unittest.TestCase):
             seen["password"] = field_value(device_cfg, "password")
             return {"method": "ssh", "hostname": "SW"}
 
-        with mock.patch.dict(os.environ, {"PROBE_USER": "test", "PROBE_PASS": "Test12345"}), \
+        with mock.patch.dict(os.environ, {"PROBE_USER": "test", "PROBE_PASS": "DemoPass123"}), \
              mock.patch.object(cli.SnmpCollector, "collect", side_effect=fake_collect):
             # method 是 ssh，走 CliCollector，这里直接验证 field_value 在 cfg 上的效果
             self.assertEqual(field_value(cfg, "username"), "test")
-            self.assertEqual(field_value(cfg, "password"), "Test12345")
+            self.assertEqual(field_value(cfg, "password"), "DemoPass123")
 
 
 if __name__ == "__main__":
