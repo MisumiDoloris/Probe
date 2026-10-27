@@ -2,6 +2,21 @@
 
 交付包一律 `probe_v<主>.<次>.zip`，不带日期。日期在包里的 CHANGELOG 和快照时间戳上，文件名只认版本号。
 
+## v0.16  2026-10-28
+
+SNMP 的版本栏只留版本那一行，不再整段 sysDescr。
+
+修正
+- `parse_version` 从 ssh.py 挪到 `collect/parsing.py`，SSH 的 `display version` 和 SNMP 的 sysDescr 共用同一份规则
+- SNMP 采到的设备，版本栏现在也写 `VRP (R) software, Version 5.110 (S5700 V200R001C00)`，不再是 `S5700-28C-HI Huawei Versatile Routing Platform Software VRP …` 这样一长串
+- 抽不到版本行时退回 sysDescr 前 200 字，不写空
+
+意义
+- 同一台设备换个采集方式，版本栏内容一致了，指纹也对得上。v0.15 那条「采集方式不同就不比较」从根上少了一半触发机会
+
+新增测试
+- 5 条覆盖版本抽取（从 sysDescr 抽、两种来源一致、抽不到、超长行忽略、空输入）。总数 133 → 138
+
 ## v0.15  2026-10-28
 
 他在笔记本上自己跑的三份报告，抓出一个假变更。

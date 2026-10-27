@@ -5,7 +5,7 @@
 
 import unittest
 
-from probe.collect.parsing import parse_model, parse_vendor
+from probe.collect.parsing import parse_version, parse_model, parse_vendor
 
 
 class TestModel(unittest.TestCase):
@@ -47,3 +47,33 @@ class TestVendor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestParseVersion(unittest.TestCase):
+    """版本栏要从两种来源里抽出同一行。
+
+    SSH 的 display version 是多行回显，SNMP 的 sysDescr 是一整段系统描述。
+    以前 SNMP 那条直接把整段塞进版本栏，同一台设备换个采集方式，
+    版本栏内容就完全不同，报告会说设备「变了」。
+    """
+
+    SYS_DESCR = ("S5700-28C-HI \n\nHuawei Versatile Routing Platform Software \n\n"
+                 "VRP (R) software, Version 5.110 (S5700 V200R001C00)")
+    SSH_LINE = "VRP (R) software, Version 5.110 (S5700 V200R001C00)"
+
+    def test_from_sysdescr(self):
+        self.assertEqual(parse_version(self.SYS_DESCR), self.SSH_LINE)
+
+    def test_both_sources_agree(self):
+        self.assertEqual(parse_version(self.SYS_DESCR), parse_version(self.SSH_LINE),
+                         "两种采集方式抽出的版本必须一致，否则指纹对不上")
+
+    def test_nothing_to_find(self):
+        self.assertEqual(parse_version("Huawei Versatile Routing Platform Software"), "")
+
+    def test_long_line_is_ignored(self):
+        """整段没有换行、又很长时不要硬塞一行进去。"""
+        self.assertEqual(parse_version("x" * 200 + " Version"), "")
+
+    def test_empty_input(self):
+        self.assertEqual(parse_version(""), "")
+        self.assertEqual(parse_version(None), "")

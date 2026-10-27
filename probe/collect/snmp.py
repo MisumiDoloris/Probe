@@ -9,7 +9,7 @@
 import asyncio
 
 from .base import field_value
-from .parsing import parse_model, parse_vendor
+from .parsing import parse_model, parse_vendor, parse_version
 
 try:
     from pysnmp.hlapi.v3arch.asyncio import (
@@ -90,7 +90,7 @@ class SnmpCollector:
         return {
             "method": "snmp",
             "hostname": data.get("name", ""),
-            "version": descr[:200],
+            "version": parse_version(descr) or descr[:200],
             "uptime": data.get("uptime", ""),
             "vendor": parse_vendor(descr),
             "model": parse_model(descr),

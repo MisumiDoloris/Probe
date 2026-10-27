@@ -8,7 +8,7 @@
 import re
 
 from .base import Collector, field_value
-from .parsing import parse_model, parse_vendor
+from .parsing import parse_model, parse_vendor, parse_version
 from ..ro_guard import assert_readonly
 
 try:
@@ -114,7 +114,7 @@ class CliCollector(Collector):
         version_text = raw.get("version", "")
         return {
             "method": self.transport,
-            "version": _parse_version(version_text),
+            "version": parse_version(version_text),
             "hostname": hostname or cfg.get("name", ""),
             "vendor": parse_vendor(version_text, brand),
             "model": parse_model(version_text),
@@ -197,7 +197,7 @@ def _explain(exc):
     return f"{name}: {text[:120]}"
 
 
-def _parse_version(text):
+def parse_version(text):
     """从回显里捞版本号。捞不到就返回空，不猜。"""
     if not text:
         return ""

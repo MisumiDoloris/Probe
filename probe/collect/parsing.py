@@ -40,3 +40,17 @@ def parse_vendor(text, brand=""):
         if any(h in low for h in hints):
             return VENDOR_NAMES[key]
     return ""
+
+
+def parse_version(text):
+    """从回显里抽版本那一行。
+
+    SSH 的 display version 和 SNMP 的 sysDescr 都能用：前者本身就是多行回显，
+    后者是一整段系统描述。两边抽出同一行，同一台设备的版本栏才可比 ——
+    不然换个采集方式，报告就会说设备「变了」。
+    """
+    for line in str(text or "").splitlines():
+        low = line.lower()
+        if "version" in low and len(line.strip()) < 120:
+            return line.strip()
+    return ""
