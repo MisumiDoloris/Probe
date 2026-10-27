@@ -6,6 +6,8 @@ output/
 
 # 真实设备清单可能带内网地址和团体字，不进仓库
 probe/config/devices.yaml
+# 现场验收清单带真实口令
+probe/config/devices.onsite.yaml
 
 # venv 与缓存
 venv/
