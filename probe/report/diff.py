@@ -65,6 +65,7 @@ def compare(old_snap, new_snap):
 
     changed = []
     uncomparable = []
+    method_changed = []
     for ip in sorted(old_ips & new_ips):
         a, b = old[ip], new[ip]
         # 有一侧没采到就没有可比数据。上一轮口令写错、这一轮采到了，
@@ -80,6 +81,16 @@ def compare(old_snap, new_snap):
             or b.get("error")
         ):
             uncomparable.append(ip)
+            continue
+        # 采集方式变了，字段来源就不一样，也不该拿来比。
+        # Telnet 的版本栏是 display version 里的一行，SNMP 的版本栏是 sysDescr 整串，
+        # 同一台设备、一个字没改，指纹也会变。2026-10-28 现场就撞上了：
+        # 同一台 S5700 先 Telnet 后 SNMP 各采一次，报告写「发生变化 1 台」。
+        # 只比两边都有值的情况：早期快照没有 method 这个字段，缺了要按老行为照常比。
+        m_a = str(a.get("method") or "").strip()
+        m_b = str(b.get("method") or "").strip()
+        if m_a and m_b and m_a != m_b:
+            method_changed.append(ip)
             continue
         if a.get("fingerprint") == b.get("fingerprint"):
             continue
@@ -110,6 +121,7 @@ def compare(old_snap, new_snap):
         "removed": removed,
         "changed": changed,
         "uncomparable": uncomparable,
+        "method_changed": method_changed,
         "summary": {
             "added": len(added),
             "removed": len(removed),
@@ -157,10 +169,16 @@ def to_lines(result):
         for ip in result["uncomparable"]:
             out.append(f"  {ip}")
 
+    if result.get("method_changed"):
+        out.append("")
+        out.append("采集方式和上次不一样，字段来源不同，这次不参与比较（不算变更）：")
+        for ip in result["method_changed"]:
+            out.append(f"  {ip}")
+
     if not any(s.values()):
         out.append("")
-        if result.get("uncomparable"):
-            out.append("没有任何比对出来的变化。上面那几台要补采一次才能比。")
+        if result.get("uncomparable") or result.get("method_changed"):
+            out.append("没有任何比对出来的变化。上面那几台要么补采一次、要么换回同一种采集方式才能比。")
         else:
             out.append("没有变化")
 

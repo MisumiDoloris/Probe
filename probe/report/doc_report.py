@@ -267,6 +267,8 @@ def build(snapshot, diff_result=None, meta=None):
             row = []
             for key, _label in LEDGER:
                 val, _unsupported = _clean(d.get(key))
+                # 回显里带换行（SNMP 的 sysDescr 就是一大段），进表格前压成一行。
+                val = " ".join(val.split())
                 if key == "uptime":
                     val = _fmt_uptime(val)
                 if key == "version" and len(val) > 60:
@@ -319,13 +321,16 @@ def build(snapshot, diff_result=None, meta=None):
                 if extra > 0:
                     _para(doc, f"　　另有 {extra} 行差异，完整内容见快照文件。")
         if not (s.get("added") or s.get("removed") or s.get("changed")):
-            if diff_result.get("uncomparable"):
-                _para(doc, "没有任何比对出来的变化。下面这几台要补采一次才能比。")
+            if diff_result.get("uncomparable") or diff_result.get("method_changed"):
+                _para(doc, "没有任何比对出来的变化。下面这几台要么补采一次、要么换回同一种采集方式才能比。")
             else:
                 _para(doc, "两次快照之间没有变化。")
         if diff_result.get("uncomparable"):
             _para(doc, "上一轮或这一轮没采到、没有可比数据的设备（不算变更）：", bold=True)
             _para(doc, "、".join(diff_result["uncomparable"]))
+        if diff_result.get("method_changed"):
+            _para(doc, "采集方式和上次不一样、字段来源不同，这次不参与比较的设备（不算变更）：", bold=True)
+            _para(doc, "、".join(diff_result["method_changed"]))
 
     # 七、只读声明
     _heading(doc, f"{'六' if diff_result else '五'}、只读声明")

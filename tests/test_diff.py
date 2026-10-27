@@ -91,7 +91,7 @@ class TestNoComparisonWhenOneSideFailed(unittest.TestCase):
 
     def dev_full(self, ip="10.0.0.1", **kw):
         d = {"ip": ip, "hostname": "SW-01", "version": "VRP 5.110", "reachable": True,
-             "error": "", "raw": {"config": "sysname SW-01\n"}, "fingerprint": "bbb"}
+             "method": "ssh", "error": "", "raw": {"config": "sysname SW-01\n"}, "fingerprint": "bbb"}
         d.update(kw)
         return d
 
@@ -124,6 +124,29 @@ class TestNoComparisonWhenOneSideFailed(unittest.TestCase):
         new = snap([self.dev_full(fingerprint="b")])
         r = diff_mod.compare(old, new)
         self.assertEqual(r["uncomparable"], [])
+        self.assertEqual(r["summary"]["changed"], 1)
+
+    def test_method_change_is_not_a_change(self):
+        """同一台设备换采集方式，字段来源不同，不能报成设备变更。
+
+        2026-10-28 现场：同一台 S5700 先 Telnet 后 SNMP 各采一次，
+        Telnet 的版本栏是 display version 的一行，SNMP 的是 sysDescr 整串，
+        报告却写「发生变化 1 台，需有人说明变更时间与操作人」。
+        """
+        old_dev = self.dev_full(method="telnet", fingerprint="a",
+                                version="VRP (R) software, Version 5.110 (S5700 V200R001C00)")
+        new_dev = self.dev_full(method="snmp", fingerprint="b",
+                                version="S5700-28C-HI Huawei Versatile Routing Platform")
+        r = diff_mod.compare(snap([old_dev]), snap([new_dev]))
+        self.assertEqual(r["summary"]["changed"], 0, "换采集方式不是设备变更")
+        self.assertIn("10.0.0.1", r["method_changed"])
+        self.assertEqual(r["uncomparable"], [], "这不是「没采到」，是换了采集方式，原因要分开说")
+
+    def test_same_method_still_compares(self):
+        """同一种采集方式下，版本真的变了还是要报。"""
+        old_dev = self.dev_full(method="ssh", version="VRP 5.110", fingerprint="a")
+        new_dev = self.dev_full(method="ssh", version="VRP 5.170", fingerprint="b")
+        r = diff_mod.compare(snap([old_dev]), snap([new_dev]))
         self.assertEqual(r["summary"]["changed"], 1)
 
     def test_missing_ip_entry_is_skipped_not_crash(self):

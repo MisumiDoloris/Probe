@@ -231,6 +231,22 @@ class TestReadonlyStatementFollowsVerdict(unittest.TestCase):
         self.assertIn("因此本报告可作为资产盘点与配置基线的记录", text)
 
 
+class TestLedgerStaysOneLine(unittest.TestCase):
+    """SNMP 的 sysDescr 是一大段带换行的文本，进台账必须压成一行。"""
+
+    def test_multiline_version_flattened(self):
+        d = dev(ip="10.0.0.1", vendor="华为", model="S5700-28C-HI",
+                version="S5700-28C-HI\n\nHuawei Versatile Routing Platform Software\n\nVRP 5.110",
+                serial="SN1", uptime="482910400")
+        doc = doc_report.build({"taken_at": "20261028_000000", "devices": [d]})
+        ledger = doc.tables[2]          # 0 结论 1 汇总 2 台账 3 异常 4 签字
+        cells = [c.text for r in ledger.rows for c in r.cells]
+        joined = "\n".join(cells)
+        self.assertIn("S5700-28C-HI Huawei", joined)
+        for c in cells:
+            self.assertNotIn("\n", c, "台账单元格里不许有换行，否则 Word 里会串行")
+
+
 class TestReportSurvivesBadSnapshot(unittest.TestCase):
     def test_none_devices_still_builds(self):
         doc = doc_report.build({"taken_at": "20261027_000000", "devices": None})
