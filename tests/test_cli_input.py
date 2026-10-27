@@ -10,6 +10,7 @@
 
 import argparse
 import os
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -149,15 +150,20 @@ class TestBlankValueIsNotAValue(unittest.TestCase):
         self.assertTrue(problems)
 
     def test_empty_ip_does_not_crash_collect(self):
-        """以前这里抛 AttributeError，退出码 1，被当成「全部没采到」。"""
-        with open("/tmp/probe_test_ipnull.yaml", "w", encoding="utf-8") as f:
+        """以前这里抛 AttributeError，退出码 1，被当成「全部没采到」。
+
+        临时文件必须每次新建：用固定路径时两个进程同时跑会互相踩，
+        症状是冒出几条看不懂的 error。
+        """
+        d = tempfile.mkdtemp(prefix="probe_ipnull_")
+        path = os.path.join(d, "dev.yaml")
+        with open(path, "w", encoding="utf-8") as f:
             f.write("devices:\n  - name: 核心交换机\n    ip:\n    method: snmp\n    community: public\n")
         try:
-            rc = cli.cmd_collect(argparse.Namespace(note="", devices="/tmp/probe_test_ipnull.yaml",
-                                                    excel="x.xlsx", no_excel=True))
+            rc = cli.cmd_collect(argparse.Namespace(note="", devices=path, excel="x.xlsx", no_excel=True))
             self.assertEqual(rc, 2)
         finally:
-            os.unlink("/tmp/probe_test_ipnull.yaml")
+            shutil.rmtree(d, ignore_errors=True)
 
 
 class TestCaseInsensitive(unittest.TestCase):
