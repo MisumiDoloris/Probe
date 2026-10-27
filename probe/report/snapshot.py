@@ -72,8 +72,20 @@ def save(devices, base_dir=SNAPSHOT_DIR, note=""):
 
 
 def load(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    """读一份快照。
+
+    读不了要说清是哪份、坏在哪，别把 JSONDecodeError 的 traceback 甩给人。
+    交付现场遇到这种情况，需要的是一句话，不是一屏栈。
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise RuntimeError(f"找不到快照文件：{path}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"快照文件读不了：{path}，第 {e.lineno} 行第 {e.colno} 列格式不对。文件可能损坏，或者被手改坏了"
+        )
 
 
 def list_files(base_dir=SNAPSHOT_DIR):

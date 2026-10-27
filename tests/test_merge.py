@@ -60,7 +60,7 @@ class TestCollectMerge(unittest.TestCase):
 
     def test_one_method_fails_other_still_ok(self):
         cfgs = [
-            {"ip": "10.0.0.1", "method": "ssh"},
+            {"ip": "10.0.0.1", "method": "ssh", "brand": "huawei"},
             {"ip": "10.0.0.1", "method": "snmp", "community": "public"},
         ]
         def fake_collect(cfg, commands):

@@ -112,6 +112,7 @@ def _stats(devices):
     探活不通也算失败。以前只认 error 非空，会出现一台设备既不算成功也不算失败，
     汇总表的数字加起来对不上，而结论照样写「均可交付」。
     """
+    devices = [d for d in (devices or []) if isinstance(d, dict)]
     total = len(devices)
     failed = [d for d in devices if d.get("error") or not d.get("reachable")]
     ok = [d for d in devices if not d.get("error") and d.get("reachable")]
@@ -172,7 +173,7 @@ def _verdict(devices, diff_result):
 def build(snapshot, diff_result=None, meta=None):
     """出一份报告对象。snapshot 是快照 dict，diff_result 是 diff.compare 的结果。"""
     meta = meta or {}
-    devices = snapshot.get("devices", [])
+    devices = [d for d in (snapshot.get("devices") or []) if isinstance(d, dict)]
     taken_at = snapshot.get("taken_at", "")
     total, ok, failed, methods = _stats(devices)
     verdict, why = _verdict(devices, diff_result)

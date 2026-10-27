@@ -68,6 +68,40 @@ def cmd_sweep(args):
 # 同一个 IP 写了多条采集方式时，按这个顺序合并，前面的优先。
 # SSH 能取到的字段最全，SNMP 只补它独有的（sysDescr / sysName / uptime）。
 METHOD_PRIORITY = {"ssh": 0, "telnet": 1, "snmp": 2}
+VALID_METHODS = {"snmp", "ssh", "telnet"}
+
+
+def _validate_devices(devices_cfg, commands):
+    """清单先校验，再决定采不采。
+
+    以前缺 ip 的条目会被按 IP 分组那一步静默跳过：客户清单里漏一个字段，
+    采集一声不吭，报告台数就少一台，签字时没人知道少了谁。宁可整批不采
+    并把问题列出来，也不静默少算。
+
+    method 以前也不校验，写成 sshh 会被当成 SSH 去连。有设备时它照样能采到，
+    台账里就写着 sshh；没设备时它报「连接超时」，把排查方向带偏。
+    """
+    problems = []
+    for i, cfg in enumerate(devices_cfg, 1):
+        if not isinstance(cfg, dict):
+            problems.append(f"第 {i} 条不是一个键值对，检查缩进")
+            continue
+        name = str(cfg.get("name") or "").strip() or "(没有写 name)"
+        if not str(cfg.get("ip", "")).strip():
+            problems.append(f"第 {i} 条（{name}）没写 ip")
+            continue
+        method = str(cfg.get("method", "snmp")).strip()
+        if method not in VALID_METHODS:
+            problems.append(
+                f"第 {i} 条（{name}）method 写成 {method!r}，只能是 ssh / telnet / snmp"
+            )
+            continue
+        if method in ("ssh", "telnet"):
+            brand = str(cfg.get("brand", "")).strip()
+            if brand not in commands:
+                known = "、".join(sorted(commands)) or "(命令表是空的)"
+                problems.append(f"第 {i} 条（{name}）品牌 {brand!r} 不在 commands.yaml 里，现有 {known}")
+    return problems
 
 
 def _collect_one(cfg, commands):
@@ -103,6 +137,16 @@ def cmd_collect(args):
     if not devices_cfg:
         print("devices.yaml 里没有设备，先填。参考 devices.yaml.example")
         return 2
+    if not isinstance(devices_cfg, list):
+        print("设备清单格式不对：devices: 下面应该是一个列表，检查缩进和短横线")
+        return 2
+
+    problems = _validate_devices(devices_cfg, commands)
+    if problems:
+        print(f"设备清单有 {len(problems)} 处问题，这一批不采，改好再来：")
+        for p in problems:
+            print(f"  · {p}")
+        return 2
 
     # 同一个 IP 可能写了多条采集方式，先按 IP 归组，采完再合并成一行台账。
     grouped = {}
@@ -112,6 +156,7 @@ def cmd_collect(args):
             grouped.setdefault(ip, []).append(cfg)
 
     results = []
+    succeeded = 0
     for ip, cfgs in grouped.items():
         cfgs = sorted(cfgs, key=lambda c: METHOD_PRIORITY.get(c.get("method", "snmp"), 9))
         merged = None
@@ -141,6 +186,7 @@ def cmd_collect(args):
 
         results.append(dev.to_dict())
         if merged is not None:
+            succeeded += 1
             print(f"  {ip:16s} ok  {dev.method}")
         else:
             print(f"  {ip:16s} 失败 {dev.error[:60]}")
@@ -151,7 +197,23 @@ def cmd_collect(args):
     if not args.no_excel:
         out = inventory.export_excel(results, args.excel)
         print(f"台账已出 {out}")
+
+    if succeeded == 0:
+        print(f"全部 {len(results)} 台都没采到。快照和台账还是出了，但这份不能当巡检结果用。")
+        return 1
+    if succeeded < len(results):
+        print(f"{len(results)} 台里采到 {succeeded} 台，剩下 {len(results) - succeeded} 台看第 4 节。")
     return 0
+
+
+def _check_snapshot_shape(snap, path):
+    """快照结构对不对。结构不对就不出报告，免得生成一份看着正常的东西。"""
+    if not isinstance(snap, dict):
+        return f"快照 {path} 格式不对：顶层应该是一个对象，现在拿到的是 {type(snap).__name__}"
+    devices = snap.get("devices")
+    if devices is not None and not isinstance(devices, list):
+        return f"快照 {path} 里的 devices 应该是一个列表，现在拿到的是 {type(devices).__name__}"
+    return ""
 
 
 def cmd_diff(args):
@@ -166,7 +228,17 @@ def cmd_diff(args):
 
     old_path = os.path.join(base, files[-2])
     new_path = os.path.join(base, files[-1])
-    result = diff_mod.compare(snapshot.load(old_path), snapshot.load(new_path))
+    try:
+        old_snap, new_snap = snapshot.load(old_path), snapshot.load(new_path)
+    except RuntimeError as e:
+        print(e)
+        return 2
+    for snap, path in ((old_snap, old_path), (new_snap, new_path)):
+        bad = _check_snapshot_shape(snap, path)
+        if bad:
+            print(bad)
+            return 2
+    result = diff_mod.compare(old_snap, new_snap)
     for line in diff_mod.to_lines(result):
         print(line)
     return 0
@@ -182,7 +254,16 @@ def cmd_report(args):
             return 2
         snap_path = os.path.join(args.dir or snapshot.SNAPSHOT_DIR, files[-1])
 
-    snap = snapshot.load(snap_path)
+    try:
+        snap = snapshot.load(snap_path)
+    except RuntimeError as e:
+        print(e)
+        return 2
+    bad = _check_snapshot_shape(snap, snap_path)
+    if bad:
+        print(bad)
+        return 2
+
     diff_result = None
     if args.diff:
         files = snapshot.list_files(args.dir or snapshot.SNAPSHOT_DIR)
@@ -190,10 +271,13 @@ def cmd_report(args):
             print("只有一份快照，出不了变更清单，报告里这一段会缺")
         else:
             base = args.dir or snapshot.SNAPSHOT_DIR
-            diff_result = diff_mod.compare(
-                snapshot.load(os.path.join(base, files[-2])),
-                snapshot.load(os.path.join(base, files[-1])),
-            )
+            try:
+                diff_result = diff_mod.compare(
+                    snapshot.load(os.path.join(base, files[-2])),
+                    snapshot.load(os.path.join(base, files[-1])),
+                )
+            except RuntimeError as e:
+                print(f"对比那两份读不了，这次只出单份报告：{e}")
 
     meta = {
         "title": args.title,
