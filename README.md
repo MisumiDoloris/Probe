@@ -122,3 +122,5 @@ pysnmp 7.x 不能沿用 4.x 的写法。`from pysnmp.hlapi import SnmpEngine` �
 ## 许可
 
 MIT，见 LICENSE。设备清单（`probe/config/devices.yaml`）不进仓库，样例见 `devices.yaml.example`。
+
+仓库里 `probe/config/` 下那几份清单是 eNSP 测试环境用的，口令与团体字一律写的是占位符（`CHANGE_ME_PASSWORD`、`public`）。实测前要改成你自己设备上的值。真实环境别把口令写进清单提交到任何仓库，要么用环境变量注入，要么交给堡垒机那一层管——这个工具的定位就是只读盘点，不该持有长期凭据。
