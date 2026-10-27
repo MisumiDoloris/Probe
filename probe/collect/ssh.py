@@ -7,7 +7,7 @@
 
 import re
 
-from .base import Collector
+from .base import Collector, field_value
 from .parsing import parse_model, parse_vendor
 from ..ro_guard import assert_readonly
 
@@ -62,8 +62,8 @@ class CliCollector(Collector):
         params = {
             "device_type": os_type,
             "host": ip,
-            "username": cfg.get("username", ""),
-            "password": cfg.get("password", ""),
+            "username": field_value(cfg, "username"),
+            "password": field_value(cfg, "password"),
             "timeout": self.timeout,
             "conn_timeout": self.timeout,
             "fast_cli": False,

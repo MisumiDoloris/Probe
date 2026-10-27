@@ -8,6 +8,7 @@ output/
 probe/config/devices.yaml
 # 现场验收清单带真实口令
 probe/config/devices.onsite.yaml
+probe/config/devices.bat.yaml
 
 # venv 与缓存
 venv/

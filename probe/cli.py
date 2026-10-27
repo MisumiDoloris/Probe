@@ -25,7 +25,7 @@ import yaml
 warnings.filterwarnings("ignore", message=".*TripleDES.*")
 
 from . import __version__
-from .collect.base import Device
+from .collect.base import Device, field_value
 from .collect import discovery
 from .collect.snmp import SnmpCollector
 from .collect.ssh import CliCollector
@@ -235,6 +235,14 @@ def _validate_devices(devices_cfg, commands):
             continue
         cfg["method"] = method
 
+        for key in ("username", "password", "community"):
+            env_key = cfg.get(f"{key}_env")
+            if env_key and not str(os.environ.get(str(env_key), "")).strip():
+                problems.append(
+                    f"第 {i} 条（{name}）写的是 {key}_env: {env_key}，但这个环境变量是空的。"
+                    "用 08_现场录入.bat 跑，或者先设好环境变量再来"
+                )
+
         if method in ("ssh", "telnet"):
             brand = str(cfg.get("brand") or "").strip().lower()
             if not brand:
@@ -268,7 +276,7 @@ def _collect_one(cfg, commands):
     ip = cfg.get("ip", "").strip()
     method = cfg.get("method", "snmp")
     if method == "snmp":
-        data = SnmpCollector(cfg.get("community", "public")).collect(ip, cfg)
+        data = SnmpCollector(field_value(cfg, "community", "public")).collect(ip, cfg)
     else:
         data = CliCollector(commands, transport=method).collect(ip, cfg)
     data.setdefault("method", method)
