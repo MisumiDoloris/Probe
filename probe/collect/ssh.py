@@ -173,10 +173,23 @@ def _explain(exc):
     name = type(exc).__name__
     text = str(exc)
     low = text.lower()
+    # 设备明确说「本地认证被拒」时，原因通常不是密码错，是 aaa 下这个用户
+    # 没允许这种登录方式（service-type 只给了 ssh，Telnet 就登不上）。
+    # 这句必须排在下面 authentication 那条前面，否则会被吃掉。
+    buffer_text = ""
+    for attr in ("output", "args"):
+        val = getattr(exc, attr, "")
+        buffer_text += str(val or "")
+    haystack = (low + " " + buffer_text.lower())
+    if "rejected" in haystack and "authentication" in haystack:
+        return "设备拒绝本地认证：这个用户没允许这种登录方式，检查 aaa 下 local-user 的 service-type 有没有 ssh / telnet"
     if "authentication" in low or name == "NetmikoAuthenticationException":
         return "认证失败：用户名或密码不对"
     if "readtimeout" in name.lower() or "pattern not detected" in low:
-        return "超时未认出提示符：密码不对（Telnet 会反复要密码）、vty 未允许该协议、或没关分屏"
+        return (
+            "超时未认出提示符：可能是密码不对，也可能是 aaa 下这个用户没配对应的 service-type"
+            "（Telnet 要 telnet、SSH 要 ssh），或者 vty 没允许该协议、没关分屏"
+        )
     if "refused" in low:
         return "端口拒绝连接：服务没开或端口号不对"
     if name == "NetmikoTimeoutException":

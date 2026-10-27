@@ -2,6 +2,22 @@
 
 交付包一律 `probe_v<主>.<次>.zip`，不带日期。日期在包里的 CHANGELOG 和快照时间戳上，文件名只认版本号。
 
+## v0.14  2026-10-28
+
+Telnet 在真机上跑通，顺带补掉一处会把人带偏的提示。
+
+实测（同一台 S5700，VRP 5.110）
+- Telnet 走 20023 隧道采集成功，设备名、品牌、型号、序列号、版本五栏与 SSH 那次逐字一致
+- 两次采到的配置回显差一行：`service-type ssh` → `service-type telnet ssh`，就是中间为了开 Telnet 改的那行。采集如实抓到了，没漏没编
+- diff 对「上一次采集失败、这一次成功」的处理在真机上生效：报「没有可比数据（不算变更）」，而不是「配置被改了」
+
+修正
+- **错误翻译补了 service-type 这一条。** 现场 Telnet 登不上时报的是「超时未认出提示符」，而设备实际说的是 `Error: Local authentication is rejected`，原因是用户的 service-type 只给了 ssh。现在这类回显会被认出来，直接说「设备拒绝本地认证，检查 service-type」，不再往密码上带
+- 超时未认出提示符的提示里也加了 service-type 这个可能
+
+新增测试
+- `tests/test_explain.py`，5 条，覆盖上面几种错误文本。总数 125 → 130
+
 ## v0.13  2026-10-27
 
 `08_现场录入.bat` 改成采集方式可选，SSH / Telnet / SNMP 三种都在一支里。
