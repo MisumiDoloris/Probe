@@ -13,9 +13,15 @@ if "%TAG%"=="" (
 ) else (
     python -m probe.cli report --diff --out "output\巡检报告_%TAG%.docx"
 )
+if errorlevel 1 goto fail
 echo.
 echo 报告在 output 目录里。
-
+goto end
+:fail
+echo.
+echo 报告没出成。上面那行写了原因，按它改完再跑一次。
+echo 注意：output 目录里可能还留着上一次的报告，默认名一样，别拿那份去签字。
+:end
 echo.
 echo 按任意键返回...
 pause >nul

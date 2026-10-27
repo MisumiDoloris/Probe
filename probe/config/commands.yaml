@@ -12,7 +12,6 @@ huawei:
   interfaces: display interface brief
   cpu: display cpu-usage
   memory: display memory-usage
-  arp: display arp
   # 序列号命令各版 VRP 不一样，按顺序试，第一条能用的就取
   serial:
     - display elabel
@@ -27,7 +26,6 @@ h3c:
   interfaces: display interface brief
   cpu: display cpu-usage
   memory: display memory
-  arp: display arp
   serial:
     - display device manuinfo
 
@@ -39,7 +37,6 @@ ruijie:
   interfaces: show ip interface brief
   cpu: show cpu
   memory: show memory
-  arp: show arp
   serial:
     - show version
 
@@ -51,7 +48,6 @@ cisco:
   interfaces: show ip interface brief
   cpu: show processes cpu
   memory: show memory statistics
-  arp: show arp
   serial:
     - show inventory
     - show version

@@ -153,12 +153,49 @@ def _missing_rows(devices):
     return rows
 
 
+KEY_FIELDS = ("vendor", "model", "version", "serial", "uptime")
+
+
+def _blank_devices(devices):
+    """连上了、也没报错，但一个字段都没取到回显的设备。
+
+    这种情况以前会被算成「采集成功」，结论照样写「均取到回显，无采集异常」，
+    而台账上是五栏「未采集到」。命令不被这版固件认、命令表里的键名写错，
+    都会走到这里。
+    """
+    rows = []
+    for d in devices:
+        if d.get("error") or not d.get("reachable"):
+            continue
+        got = False
+        for key in KEY_FIELDS:
+            val, _why = _clean(d.get(key))
+            if val:
+                got = True
+                break
+        if not got:
+            rows.append(d)
+    return rows
+
+
 def _verdict(devices, diff_result):
     total, ok, failed, _ = _stats(devices)
     if failed:
         return "需核实", f"{len(failed)} 台设备采集失败，原因见第 4 节。这份报告不能当盘点结论用。"
     if total == 0:
         return "需核实", "快照里没有设备，清单可能是空的。"
+    blanks = _blank_devices(devices)
+    if blanks and len(blanks) >= total:
+        return (
+            "需核实",
+            f"{total} 台设备都连上了，但一个字段都没取到回显。命令可能不被设备的这个版本识别，"
+            "先把命令表和第 4 节核对一遍，再采一次。",
+        )
+    if blanks:
+        return (
+            "需核实",
+            f"{len(blanks)} 台设备连上了但字段全空（见第 4 节），这次不能按全部顺利算。",
+        )
     if diff_result:
         s = diff_result.get("summary", {}) or {}
         if s.get("added") or s.get("removed") or s.get("changed"):
@@ -212,7 +249,6 @@ def build(snapshot, diff_result=None, meta=None):
         "SNMP 采集只取到系统描述与设备名。品牌、型号从系统描述里解析，解析不出的需要 SSH 或 Telnet 补；"
         "序列号 SNMP 协议本身不提供。台账里凡是没取到的栏，都在第 4 节列出并写明下一步怎么补。",
     )
-
     # 三、结论
     _heading(doc, "二、巡检结论")
     _table(doc, ["结论", "依据"], [[verdict, why]])
@@ -283,20 +319,33 @@ def build(snapshot, diff_result=None, meta=None):
                 if extra > 0:
                     _para(doc, f"　　另有 {extra} 行差异，完整内容见快照文件。")
         if not (s.get("added") or s.get("removed") or s.get("changed")):
-            _para(doc, "两次快照之间没有变化。")
+            if diff_result.get("uncomparable"):
+                _para(doc, "没有任何比对出来的变化。下面这几台要补采一次才能比。")
+            else:
+                _para(doc, "两次快照之间没有变化。")
+        if diff_result.get("uncomparable"):
+            _para(doc, "上一轮或这一轮没采到、没有可比数据的设备（不算变更）：", bold=True)
+            _para(doc, "、".join(diff_result["uncomparable"]))
 
     # 七、只读声明
-    _heading(doc, "六、只读声明")
+    _heading(doc, f"{'六' if diff_result else '五'}、只读声明")
     _para(
         doc,
         "本工具在设计上只做查询。所有准备下发的命令先过只读守卫，不属于 show、display 白名单的直接拒绝，"
         "不会静默放过。依据是 GB/T 22239-2019《信息安全技术 网络安全等级保护基本要求》中对变更管理的要求，"
         "写操作应在具备审计能力的一层执行。",
     )
-    _para(doc, "因此本报告可作为资产盘点与配置基线的记录，不能作为配置变更的依据。")
+    if verdict == "可交付":
+        _para(doc, "因此本报告可作为资产盘点与配置基线的记录，不能作为配置变更的依据。")
+    else:
+        _para(
+            doc,
+            f"本次结论是「{verdict}」，不是「可交付」。这份报告不能单独作为资产盘点或配置基线的记录，"
+            "按第 4 节、第 5 节把问题处理完再重新出具。",
+        )
 
     # 八、签字
-    _heading(doc, "七、确认")
+    _heading(doc, f"{'七' if diff_result else '六'}、确认")
     t = doc.add_table(rows=2, cols=4)
     t.style = "Table Grid"
     heads = ["巡检人", "审核人", "甲方确认", "日期"]

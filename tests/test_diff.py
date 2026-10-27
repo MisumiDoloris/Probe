@@ -86,5 +86,52 @@ class TestNoFalseConfigClaim(unittest.TestCase):
         self.assertNotIn("config", fields)
 
 
+class TestNoComparisonWhenOneSideFailed(unittest.TestCase):
+    """上一轮没采到，这一轮采到了，不是「发生变化」。"""
+
+    def dev_full(self, ip="10.0.0.1", **kw):
+        d = {"ip": ip, "hostname": "SW-01", "version": "VRP 5.110", "reachable": True,
+             "error": "", "raw": {"config": "sysname SW-01\n"}, "fingerprint": "bbb"}
+        d.update(kw)
+        return d
+
+    def test_failed_last_round_is_not_a_change(self):
+        old = snap([{"ip": "10.0.0.1", "reachable": False, "hostname": "", "version": "",
+                     "error": "认证失败", "raw": {}, "fingerprint": "aaa"}])
+        new = snap([self.dev_full()])
+        r = diff_mod.compare(old, new)
+        self.assertEqual(r["summary"]["changed"], 0, "上次没采到，不能算变更")
+        self.assertEqual(r["uncomparable"], ["10.0.0.1"])
+
+    def test_failed_this_round_is_not_a_change(self):
+        old = snap([self.dev_full()])
+        new = snap([{"ip": "10.0.0.1", "reachable": False, "error": "连接超时", "raw": {},
+                     "fingerprint": "ccc"}])
+        r = diff_mod.compare(old, new)
+        self.assertEqual(r["summary"]["changed"], 0)
+        self.assertIn("10.0.0.1", r["uncomparable"])
+
+    def test_uncomparable_is_said_out_loud(self):
+        old = snap([{"ip": "10.0.0.1", "reachable": False, "error": "x", "raw": {}, "fingerprint": "a"}])
+        new = snap([self.dev_full()])
+        text = "\n".join(diff_mod.to_lines(diff_mod.compare(old, new)))
+        self.assertIn("没有可比数据", text)
+
+    def test_old_snapshot_without_reachable_field_still_compares(self):
+        """v0.5 以前的快照没有 reachable 字段，缺字段要按老行为照常比。"""
+        old = snap([{"ip": "10.0.0.1", "hostname": "SW-01", "version": "VRP 5.110",
+                     "raw": {"config": "sysname A\n"}, "fingerprint": "a"}])
+        new = snap([self.dev_full(fingerprint="b")])
+        r = diff_mod.compare(old, new)
+        self.assertEqual(r["uncomparable"], [])
+        self.assertEqual(r["summary"]["changed"], 1)
+
+    def test_missing_ip_entry_is_skipped_not_crash(self):
+        old = snap([{"hostname": "没有 ip 的设备", "fingerprint": "a"}])
+        new = snap([self.dev_full()])
+        r = diff_mod.compare(old, new)
+        self.assertIsInstance(r["uncomparable"], list)
+
+
 if __name__ == "__main__":
     unittest.main()

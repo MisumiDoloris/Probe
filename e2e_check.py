@@ -82,4 +82,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as e:
+        # 快照读不了之类的情况，这里只打一句话，不甩栈 —— 这个脚本就在交付包根目录。
+        print(e)
+        sys.exit(2)

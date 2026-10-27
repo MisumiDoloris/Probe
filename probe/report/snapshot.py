@@ -74,14 +74,25 @@ def save(devices, base_dir=SNAPSHOT_DIR, note=""):
 def load(path):
     """读一份快照。
 
-    读不了要说清是哪份、坏在哪，别把 JSONDecodeError 的 traceback 甩给人。
-    交付现场遇到这种情况，需要的是一句话，不是一屏栈。
+    读不了要说清是哪份、坏在哪，别把异常栈甩给人。交付现场遇到这种情况，
+    需要的是一句话，不是一屏栈。快照是文本 json，在 Windows 上用记事本或
+    Excel 另存一次就会变成 UTF-16 或 GBK，--snapshot 又是让人直接填路径的参数。
     """
+    if os.path.isdir(path):
+        raise RuntimeError(f"{path} 是一个目录，不是快照文件。--snapshot 后面要给具体的 json 文件")
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         raise RuntimeError(f"找不到快照文件：{path}")
+    except UnicodeDecodeError:
+        raise RuntimeError(
+            f"快照读不了：{path} 不是 UTF-8 编码。用记事本打开另存成 UTF-8，或者重新采一次"
+        )
+    except PermissionError:
+        raise RuntimeError(f"快照读不了：{path} 没有读取权限，先把它从只读或占用状态里放出来")
+    except OSError as e:
+        raise RuntimeError(f"快照读不了：{path}，{e}")
     except json.JSONDecodeError as e:
         raise RuntimeError(
             f"快照文件读不了：{path}，第 {e.lineno} 行第 {e.colno} 列格式不对。文件可能损坏，或者被手改坏了"

@@ -13,6 +13,7 @@ report  出 Word 巡检报告（给甲方的那一层）
 """
 
 import argparse
+import ipaddress
 import os
 import sys
 import warnings
@@ -34,34 +35,126 @@ from .report import inventory, doc_report
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(HERE, "config")
 
+DEFAULT_NETWORK = "192.168.1.0/24"
+# 一个段最多扫这么多地址。再大就不是这个工具的场合了，IPv6 的 /64 会把
+# 2^64 个地址整体物化成列表，程序静默卡死，一个字都不输出。
+MAX_SWEEP_ADDRESSES = 65536
+
+
+def _yaml_hint(e):
+    """把 yaml 的报错翻成一句能照着改的话。"""
+    mark = getattr(e, "problem_mark", None)
+    line = getattr(mark, "line", None)
+    problem = getattr(e, "problem", None) or str(e)
+    where = f"第 {line + 1} 行" if isinstance(line, int) else ""
+    return f"{where} {problem}".strip()
+
 
 def _load_yaml(name):
     path = os.path.join(CONFIG_DIR, name)
     if not os.path.exists(path):
         return {}
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except UnicodeDecodeError:
+        raise RuntimeError(f"{name} 读不了：不是 UTF-8 编码，用记事本另存成 UTF-8 再来")
+    except yaml.YAMLError as e:
+        raise RuntimeError(f"{name} 格式不对：{_yaml_hint(e)}")
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{name} 顶层应该是「品牌: 设置」这样的键值对，现在读到的是 {type(data).__name__}")
+    return data
 
 
 def _load_devices(arg=None):
     """设备清单。默认读 config/devices.yaml，--devices 可以指到别处。
 
     一个客户一份清单，换现场不用改代码，也不用把清单混在一起。
+
+    读不进来是最常见的现场故障（Excel 转出来带 Tab 缩进、记事本另存成 GBK、
+    直接把一行一台贴进文件没有 devices:），这里一律翻成人话，不甩栈。
     """
     path = arg or os.path.join(CONFIG_DIR, "devices.yaml")
     if not os.path.exists(path):
-        print(f"找不到设备清单 {path}，参考 config/devices.yaml.example")
-        return []
-    with open(path, encoding="utf-8") as f:
-        return (yaml.safe_load(f) or {}).get("devices", [])
+        raise RuntimeError(
+            f"找不到设备清单：{path}\n"
+            "改 --devices 指到你自己的清单，或者照 config/devices.yaml.example 抄一份"
+        )
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except UnicodeDecodeError:
+        raise RuntimeError(f"清单读不了：{path} 不是 UTF-8 编码。Windows 记事本另存时选 UTF-8")
+    except yaml.YAMLError as e:
+        raise RuntimeError(
+            f"清单的 YAML 格式不对：{path}\n"
+            f"{_yaml_hint(e)}\n"
+            "常见三种：缩进用了 Tab（只能用空格）、冒号后面没跟空格、顶层少了 devices:"
+        )
+    if isinstance(data, list):
+        raise RuntimeError(
+            f"清单格式不对：{path} 顶层是一个列表。要写成 devices: 换行再缩进列设备，"
+            "参考 config/devices.yaml.example"
+        )
+    if not isinstance(data, dict):
+        raise RuntimeError(f"清单格式不对：{path} 读出来不是键值对（可能是空的或者只有注释）")
+    return data.get("devices") or []
+
+
+def _validate_network(text):
+    """扫之前先看网段写得对不对。
+
+    ipaddress 对写错的网段直接抛 ValueError，现场看到的是栈；IPv6 的 /64
+    会把 2^64 个地址整体物化成列表，程序静默卡死，一个字都不输出。
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return f"没写网段。形如 {DEFAULT_NETWORK}，只扫一台就写 192.168.1.1/32"
+    try:
+        net = ipaddress.ip_network(raw, strict=False)
+    except ValueError:
+        return f"{raw!r} 不是合法的网段。形如 {DEFAULT_NETWORK}，单个地址要写成 192.168.1.1/32"
+    total = net.num_addresses
+    if total > MAX_SWEEP_ADDRESSES:
+        return (
+            f"{raw} 里有 {total} 个地址，太多，这个工具是给单段办公楼用的。"
+            f"缩到 /16 之内（{MAX_SWEEP_ADDRESSES} 个地址）再来"
+        )
+    return ""
+
+
+def _check_out_path(path, what, must_ext):
+    """输出路径的检查。
+
+    采完几十台、跑到最后一刻才发现路径是个目录，代价最大；不带扩展名
+    静默成功更糟，Windows 上双击打不开，现场结论是「没出表」。
+    """
+    p = str(path or "").strip()
+    if not p:
+        return f"{what}的路径是空的"
+    if os.path.isdir(p):
+        return f"{what}指向的是一个目录：{p}。要给完整文件名，比如 {os.path.join(p, what + must_ext)}"
+    if not os.path.splitext(p)[1]:
+        return f"{what}没写扩展名：{p}。补上 {must_ext}，不然 Windows 上双击打不开"
+    return ""
 
 
 def cmd_sweep(args):
+    bad = _validate_network(args.network)
+    if bad:
+        print(bad)
+        return 2
+    if not (1 <= int(args.workers) <= 256):
+        print("并发数要在 1 到 256 之间，默认 64")
+        return 2
+
     print(f"扫 {args.network}  ...")
     found = discovery.sweep(args.network, workers=args.workers)
     print(f"在线 {len(found)} 台")
     for ip, ports in sorted(found.items()):
         print(f"  {ip:16s} 开放端口 {ports}")
+    if not found:
+        print("这一段一个都没探到。先确认网段写对了、本机跟设备在同一层，再怀疑设备没开")
     return 0
 
 
@@ -71,15 +164,45 @@ METHOD_PRIORITY = {"ssh": 0, "telnet": 1, "snmp": 2}
 VALID_METHODS = {"snmp", "ssh", "telnet"}
 
 
+def _validate_commands(commands):
+    """命令表本身的校验。
+
+    最阴的一种错是键名拼错：既不进只读守卫、也不会被下发，采集算成功、
+    字段全空，报告上一片「未采集到」，查半天才想到是表里把 version 写成
+    verison。这里把不认识的键直接点出来。
+    """
+    from .collect.ssh import COLLECT_KEYS
+
+    allowed = set(COLLECT_KEYS) | {"label", "netmiko_os"}
+    problems = []
+    for brand, table in commands.items():
+        if not isinstance(table, dict):
+            problems.append(
+                f"commands.yaml 里 {brand} 那一组不是键值对（缩进错一格就会这样），现在是 {type(table).__name__}"
+            )
+            continue
+        unknown = sorted(k for k in table if k not in allowed)
+        if unknown:
+            problems.append(
+                f"commands.yaml 里 {brand} 下有不认识的键 {unknown}，"
+                f"能用的只有 {sorted(allowed)}；写错的键既不报错也不会去采"
+            )
+    return problems
+
+
 def _validate_devices(devices_cfg, commands):
-    """清单先校验，再决定采不采。
+    """清单先校验，再决定采不采。校验通过时顺手把值规范化并写回。
 
-    以前缺 ip 的条目会被按 IP 分组那一步静默跳过：客户清单里漏一个字段，
-    采集一声不吭，报告台数就少一台，签字时没人知道少了谁。宁可整批不采
-    并把问题列出来，也不静默少算。
+    两个坑都踩过：
+    一是以前缺 ip 的条目会被按 IP 分组那一步静默跳过，客户清单漏一个字段，
+    采集一声不吭，报告台数就少一台。现在宁可整批不采并指名到第几条。
+    二是判断「有没有值」不能先 str() 再判：YAML 里写 `ip:` 留空，值是 None，
+    str(None) 得到字符串 "None"，非空就放行了，然后下游 .strip() 当场崩。
+    这类空值恰恰是 Excel 导出来最常见的样子。
 
-    method 以前也不校验，写成 sshh 会被当成 SSH 去连。有设备时它照样能采到，
-    台账里就写着 sshh；没设备时它报「连接超时」，把排查方向带偏。
+    method / brand 在这里小写归一后写回 cfg，采集层拿到的就是规范值。
+    只拦不归一会更糟：method 写成 Telnet 时，采集层是拿它跟 "telnet" 比的，
+    对不上就走 SSH 连 22 端口，拿 SSH 去连一台只会 Telnet 的老设备。
     """
     problems = []
     for i, cfg in enumerate(devices_cfg, 1):
@@ -87,20 +210,56 @@ def _validate_devices(devices_cfg, commands):
             problems.append(f"第 {i} 条不是一个键值对，检查缩进")
             continue
         name = str(cfg.get("name") or "").strip() or "(没有写 name)"
-        if not str(cfg.get("ip", "")).strip():
+
+        raw_ip = cfg.get("ip")
+        if raw_ip is None or isinstance(raw_ip, (dict, list)):
             problems.append(f"第 {i} 条（{name}）没写 ip")
             continue
-        method = str(cfg.get("method", "snmp")).strip()
-        if method not in VALID_METHODS:
+        ip = str(raw_ip).strip()
+        if not ip:
+            problems.append(f"第 {i} 条（{name}）没写 ip")
+            continue
+        cfg["ip"] = ip
+
+        method = str(cfg.get("method") or "").strip().lower()
+        if not method:
             problems.append(
-                f"第 {i} 条（{name}）method 写成 {method!r}，只能是 ssh / telnet / snmp"
+                f"第 {i} 条（{name}）没写 method，得写 ssh / telnet / snmp。"
+                "不写会被当成 snmp 去问，设备只开了 Telnet 时回来的错是超时，方向就带偏了"
             )
             continue
+        if method not in VALID_METHODS:
+            problems.append(
+                f"第 {i} 条（{name}）method 写成 {cfg.get('method')!r}，只能是 ssh / telnet / snmp"
+            )
+            continue
+        cfg["method"] = method
+
         if method in ("ssh", "telnet"):
-            brand = str(cfg.get("brand", "")).strip()
+            brand = str(cfg.get("brand") or "").strip().lower()
+            if not brand:
+                problems.append(
+                    f"第 {i} 条（{name}）用 {method} 采就必须写 brand，它决定读命令表里的哪一组"
+                )
+                continue
             if brand not in commands:
                 known = "、".join(sorted(commands)) or "(命令表是空的)"
-                problems.append(f"第 {i} 条（{name}）品牌 {brand!r} 不在 commands.yaml 里，现有 {known}")
+                hint = ""
+                if brand in {k.lower() for k in commands}:
+                    hint = "；大小写不用管，已经自动归一了，检查有没有多余的字符"
+                problems.append(
+                    f"第 {i} 条（{name}）品牌 {cfg.get('brand')!r} 不在 commands.yaml 里，现有 {known}"
+                    f"。命令表里没有的品牌，把这条改成 method: snmp 还能采到系统信息和运行时长{hint}"
+                )
+                continue
+            table = commands.get(brand) or {}
+            if not str(table.get("netmiko_os") or "").strip():
+                problems.append(
+                    f"第 {i} 条（{name}）品牌 {brand} 在命令表里没写 netmiko_os，"
+                    f"用 {method} 采不了（只会报 device_type 不被支持）"
+                )
+                continue
+            cfg["brand"] = brand
     return problems
 
 
@@ -132,19 +291,30 @@ def _merge_into(base, extra):
 
 
 def cmd_collect(args):
-    devices_cfg = _load_devices(getattr(args, "devices", None))
-    commands = _load_yaml("commands.yaml")
-    if not devices_cfg:
-        print("devices.yaml 里没有设备，先填。参考 devices.yaml.example")
-        return 2
-    if not isinstance(devices_cfg, list):
-        print("设备清单格式不对：devices: 下面应该是一个列表，检查缩进和短横线")
+    try:
+        devices_cfg = _load_devices(getattr(args, "devices", None))
+        commands = _load_yaml("commands.yaml")
+    except RuntimeError as e:
+        print(e)
         return 2
 
+    if not devices_cfg:
+        print("清单里没有设备，先填。参考 config/devices.yaml.example")
+        return 2
+    if not isinstance(devices_cfg, list):
+        print("清单格式不对：devices: 下面应该是一个列表，检查缩进和短横线")
+        return 2
+
+    cmd_problems = _validate_commands(commands)
     problems = _validate_devices(devices_cfg, commands)
-    if problems:
-        print(f"设备清单有 {len(problems)} 处问题，这一批不采，改好再来：")
-        for p in problems:
+    if not args.no_excel:
+        bad_out = _check_out_path(args.excel, "台账", ".xlsx")
+        if bad_out:
+            problems.append(bad_out)
+    all_problems = cmd_problems + problems
+    if all_problems:
+        print(f"跑之前先有 {len(all_problems)} 处要改，这一批一台都没采：")
+        for p in all_problems:
             print(f"  · {p}")
         return 2
 
@@ -202,7 +372,11 @@ def cmd_collect(args):
         print(f"全部 {len(results)} 台都没采到。快照和台账还是出了，但这份不能当巡检结果用。")
         return 1
     if succeeded < len(results):
-        print(f"{len(results)} 台里采到 {succeeded} 台，剩下 {len(results) - succeeded} 台看第 4 节。")
+        missed = len(results) - succeeded
+        if args.no_excel:
+            print(f"{len(results)} 台里采到 {succeeded} 台，没采到的那 {missed} 台看上面带「失败」的行。")
+        else:
+            print(f"{len(results)} 台里采到 {succeeded} 台。没采到的那 {missed} 台，原因写在台账的「待核实」那一页。")
     return 0
 
 
@@ -211,9 +385,31 @@ def _check_snapshot_shape(snap, path):
     if not isinstance(snap, dict):
         return f"快照 {path} 格式不对：顶层应该是一个对象，现在拿到的是 {type(snap).__name__}"
     devices = snap.get("devices")
-    if devices is not None and not isinstance(devices, list):
+    if devices is None:
+        return ""
+    if not isinstance(devices, list):
         return f"快照 {path} 里的 devices 应该是一个列表，现在拿到的是 {type(devices).__name__}"
+    for i, d in enumerate(devices, 1):
+        if not isinstance(d, dict):
+            return f"快照 {path} 里第 {i} 台设备不是键值对，文件可能被手改坏了"
+        if not str(d.get("ip") or "").strip():
+            return f"快照 {path} 里第 {i} 台设备没有 ip，diff 靠 IP 配对，先把这个字段补上"
     return ""
+
+
+def _safe_compare(old_path, new_path):
+    """比两份快照。读不了或结构不对就说一句，不出半份变更清单。"""
+    try:
+        old_snap, new_snap = snapshot.load(old_path), snapshot.load(new_path)
+    except RuntimeError as e:
+        print(f"变更清单出不了：{e}")
+        return None
+    for snap, path in ((old_snap, old_path), (new_snap, new_path)):
+        bad = _check_snapshot_shape(snap, path)
+        if bad:
+            print(f"变更清单出不了：{bad}")
+            return None
+    return diff_mod.compare(old_snap, new_snap)
 
 
 def cmd_diff(args):
@@ -226,19 +422,9 @@ def cmd_diff(args):
         print("快照不足两份，跑两次 collect 再来比")
         return 2
 
-    old_path = os.path.join(base, files[-2])
-    new_path = os.path.join(base, files[-1])
-    try:
-        old_snap, new_snap = snapshot.load(old_path), snapshot.load(new_path)
-    except RuntimeError as e:
-        print(e)
+    result = _safe_compare(os.path.join(base, files[-2]), os.path.join(base, files[-1]))
+    if result is None:
         return 2
-    for snap, path in ((old_snap, old_path), (new_snap, new_path)):
-        bad = _check_snapshot_shape(snap, path)
-        if bad:
-            print(bad)
-            return 2
-    result = diff_mod.compare(old_snap, new_snap)
     for line in diff_mod.to_lines(result):
         print(line)
     return 0
@@ -264,20 +450,34 @@ def cmd_report(args):
         print(bad)
         return 2
 
+    bad_out = _check_out_path(args.out, "报告", ".docx")
+    if bad_out:
+        print(bad_out)
+        return 2
+
     diff_result = None
     if args.diff:
-        files = snapshot.list_files(args.dir or snapshot.SNAPSHOT_DIR)
-        if len(files) < 2:
-            print("只有一份快照，出不了变更清单，报告里这一段会缺")
+        # 给了 --snapshot 就跟它自己前面那一份比。
+        # 以前固定拿目录里最新两份，于是正文讲这一批、第 5 节讲另一批，
+        # 报告自相矛盾还照样出得来，退出码 0。
+        if args.snapshot:
+            base = os.path.dirname(snap_path) or snapshot.SNAPSHOT_DIR
+            files = snapshot.list_files(base)
+            cur = os.path.basename(snap_path)
+            if cur not in files:
+                print("--snapshot 指的那份不在它所在目录的快照序列里，出不了变更清单，这次只出单份报告")
+            elif files.index(cur) == 0:
+                print("这份快照前面没有更早的一份，出不了变更清单，这次只出单份报告")
+            else:
+                idx = files.index(cur)
+                diff_result = _safe_compare(os.path.join(base, files[idx - 1]), snap_path)
         else:
             base = args.dir or snapshot.SNAPSHOT_DIR
-            try:
-                diff_result = diff_mod.compare(
-                    snapshot.load(os.path.join(base, files[-2])),
-                    snapshot.load(os.path.join(base, files[-1])),
-                )
-            except RuntimeError as e:
-                print(f"对比那两份读不了，这次只出单份报告：{e}")
+            files = snapshot.list_files(base)
+            if len(files) < 2:
+                print("只有一份快照，出不了变更清单，报告里这一段会缺")
+            else:
+                diff_result = _safe_compare(os.path.join(base, files[-2]), os.path.join(base, files[-1]))
 
     meta = {
         "title": args.title,

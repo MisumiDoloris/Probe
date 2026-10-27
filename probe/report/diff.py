@@ -15,7 +15,19 @@ MAX_DIFF_LINES = 5
 
 
 def _index(snapshot):
-    return {d["ip"]: d for d in snapshot.get("devices", [])}
+    """按 IP 建索引。
+
+    容忍脏条目：快照被手改过、或某条缺 ip 时，跳过而不是抛 KeyError。
+    这类脏数据 CLI 入口会挡，但 diff 也可能被别处直接调用。
+    """
+    out = {}
+    for d in snapshot.get("devices") or []:
+        if not isinstance(d, dict):
+            continue
+        ip = str(d.get("ip") or "").strip()
+        if ip:
+            out[ip] = d
+    return out
 
 
 def _config_diff(old_dev, new_dev, limit=MAX_DIFF_LINES):
@@ -52,8 +64,23 @@ def compare(old_snap, new_snap):
     removed = sorted(old_ips - new_ips)
 
     changed = []
+    uncomparable = []
     for ip in sorted(old_ips & new_ips):
         a, b = old[ip], new[ip]
+        # 有一侧没采到就没有可比数据。上一轮口令写错、这一轮采到了，
+        # 两台设备在指纹上必然不同，以前会报成「配置和版本都变了」，
+        # 让甲方去解释一次根本没发生的变更。这里只记「无法比对」。
+        #
+        # 判据只认明确的 False：v0.5 以前的快照没有 reachable 这个字段，
+        # 缺字段要按老行为照常比，不能因为读不到就当成失败。
+        if (
+            a.get("reachable") is False
+            or b.get("reachable") is False
+            or a.get("error")
+            or b.get("error")
+        ):
+            uncomparable.append(ip)
+            continue
         if a.get("fingerprint") == b.get("fingerprint"):
             continue
         diffs = []
@@ -82,6 +109,7 @@ def compare(old_snap, new_snap):
         "added": added,
         "removed": removed,
         "changed": changed,
+        "uncomparable": uncomparable,
         "summary": {
             "added": len(added),
             "removed": len(removed),
@@ -123,8 +151,17 @@ def to_lines(result):
             if extra > 0:
                 out.append(f"      …另有 {extra} 行差异，详见快照")
 
+    if result.get("uncomparable"):
+        out.append("")
+        out.append("上一轮或这一轮没采到，没有可比数据（不算变更，先把它补采一次）：")
+        for ip in result["uncomparable"]:
+            out.append(f"  {ip}")
+
     if not any(s.values()):
         out.append("")
-        out.append("没有变化")
+        if result.get("uncomparable"):
+            out.append("没有任何比对出来的变化。上面那几台要补采一次才能比。")
+        else:
+            out.append("没有变化")
 
     return out

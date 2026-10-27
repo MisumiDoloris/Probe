@@ -111,6 +111,14 @@ eNSP 留着验 SSH 和 Telnet 的交互，那部分是 netmiko 和设备真实�
         devices.yaml       设备清单
         commands.yaml      命令模板（按品牌）
 
+## 退出码
+
+现场双击 bat 不用管，bat 自己会按退出码给提示。写脚本自动化的时候要认这三个：
+
+- 0 正常。部分设备失败也算 0，失败的那几台在台账的「待核实」那一页
+- 1 清单里有设备，但一台都没采到。快照和台账照样会写出来，别拿它去出报告
+- 2 跑之前就被拦下了：清单缺字段或格式不对、命令表有错、快照读不了、网段写错、输出路径不对。控制台会写清第几条、哪台、哪个字段
+
 ## 已知的坑
 
 **paramiko 装 5.x 连不上老华为设备。** eNSP 1.3 里的 S5700（VRP 5.110）只提供 `diffie-hellman-group1-sha1` / `group-exchange-sha1`、`aes128-cbc` / `3des-cbc`、`hmac-sha1` 这几样老算法，paramiko 5.x 已经把这些类整个删掉，握手直接抛 `IncompatiblePeer: no acceptable kex algorithm`。实测降到 **paramiko 2.12.0** 就通，netmiko 4.8.0 配 2.12 会报依赖冲突但仍能正常工作。真机上的老设备大概率也是这套老算法，所以这条不是模拟器的特殊情况。

@@ -27,7 +27,10 @@ COLUMNS = [
 
 def to_records(devices):
     rows = []
-    for d in devices:
+    for d in devices or []:
+        if not isinstance(d, dict):
+            # 跟报告层保持一致：脏条目跳过，不让台账这一路单独崩掉。
+            continue
         row = {}
         for key, label in COLUMNS:
             val = d.get(key, "")
